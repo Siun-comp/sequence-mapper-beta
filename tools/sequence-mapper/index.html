@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'"><link rel="icon" href="icon.svg"><title>Sequence Mapper · JSU LabTools</title><link rel="stylesheet" href="tool.css"><script src="../method-comparison/vendor/jszip.min.js"></script><script type="module" src="app.mjs"></script></head>
+<body><a class="skip" href="#main">본문으로 이동</a><header class="masthead"><div class="brand"><img class="brand-mark" src="brand.svg" width="36" height="36" alt=""><span class="brand-name">JSU <b>LabTools</b></span></div><p>분자진단 개발 업무용 도구</p></header>
+<main id="main" tabindex="-1"><div class="heading"><div><h1>Sequence Mapper</h1><p class="heading-note">수집한 서열을 reference 하나에 매핑하고 변이와 primer 결합 상태를 확인합니다. 서열은 이 브라우저 밖으로 나가지 않습니다.</p></div><p>개발판 · <span id="tool-version"></span></p></div>
+
+<details id="input-panel" class="panel" open><summary>서열 불러오기</summary><div class="panel-body">
+<div class="drop-grid">
+ <div class="drop" id="drop-queries"><div class="drop-title">서열 파일</div><p class="hint">FASTA 또는 GenBank, 여러 파일 가능. 읽은 뒤 목록에서 Reference를 고르고 서열을 추립니다. 서열이 1개면 단일 서열 화면으로 엽니다.</p><input class="file-input" id="file-queries" type="file" multiple accept=".fasta,.fa,.fna,.fas,.gb,.gbk,.txt"><label class="file-button" for="file-queries">파일 선택</label><p class="file-name" id="name-queries">끌어다 놓아도 됩니다.</p></div>
+ <div class="drop" id="drop-reference"><div class="drop-title">Reference 파일 <span class="hint">(선택)</span></div><p class="hint">기준 서열이 목록에 없을 때만 넣습니다. FASTA 또는 GenBank, 서열 1개.</p><input class="file-input" id="file-reference" type="file" accept=".fasta,.fa,.fna,.fas,.gb,.gbk,.txt"><label class="file-button" for="file-reference">파일 선택</label><p class="file-name" id="name-reference">끌어다 놓아도 됩니다.</p></div>
+</div>
+<div class="button-row"><button id="load" class="primary" type="button" disabled>파일 읽기</button><button id="example" type="button">합성 예제로 시작</button><button id="reset" type="button">초기화</button></div>
+<div id="input-report" hidden><ul id="report-list" class="report"></ul>
+ <section class="list-panel" aria-label="서열 목록">
+  <p id="list-reference" class="list-reference"></p>
+  <div class="list-tools">
+   <label>이름 포함<input id="list-name" type="search" spellcheck="false"></label><label>길이 최소<input id="list-min" type="number" min="0" step="1"></label><label>길이 최대<input id="list-max" type="number" min="0" step="1"></label><label>N·혼합 최대 %<input id="list-ambiguous" type="number" min="0" max="100" step="any"></label>
+   <label class="check"><input id="list-first" type="checkbox">같은 accession은 첫 번째만</label><label class="check"><input id="list-hidden" type="checkbox">조건에서 빠진 서열도 보기</label>
+   <span class="tool-gap"></span><button id="list-all" type="button">표시 서열 모두 포함</button><button id="list-none" type="button">표시 서열 모두 제외</button>
+  </div>
+  <div class="list-summary"><p id="list-counts" role="status"></p><div class="list-chart"><canvas id="list-histogram" aria-hidden="true"></canvas><span id="list-range" class="hint"></span></div></div>
+  <div class="list-table" role="table" aria-label="불러온 서열"><div class="list-row list-head" role="row"><span></span><button data-sort="input" type="button" class="num">번호</button><button data-sort="name" type="button">이름</button><button data-sort="length" type="button" class="num">길이</button><button data-sort="ambiguous" type="button" class="num">N·혼합</button><span>상태</span><span></span></div>
+   <div id="list-scroll" class="list-scroll" tabindex="0"><div id="list-spacer" class="list-spacer"></div><div id="list-rows" class="list-rows"></div></div><p id="list-empty" class="empty" hidden>조건에 맞는 서열이 없습니다.</p></div>
+  <pre id="list-preview" class="list-preview" hidden></pre>
+ </section>
+ <div id="judge" class="judge"></div><div class="button-row"><button id="run" class="primary" type="button">매핑 실행</button></div></div>
+<div id="progress-box" hidden><progress id="progress" max="1" value="0"></progress><p id="progress-text" class="hint" role="status"></p><div class="button-row"><button id="cancel" type="button">취소</button></div></div>
+<p id="error" class="error" role="alert"></p>
+<div class="other-starts">
+ <details><summary>저장한 프로젝트 열기</summary><p class="hint">.jsumap 파일을 열면 매핑을 다시 하지 않고 이어서 작업합니다.</p><input class="file-input" id="file-project" type="file" accept=".jsumap"><label class="file-button" for="file-project">프로젝트 파일 선택</label></details>
+ <details id="aligned-panel"><summary>이미 정렬한 파일 읽기</summary><p class="hint">범위를 넘는 자료는 Geneious 등에서 공통 열로 맞춰 내보낸 Aligned FASTA를 매핑 없이 읽을 수 있습니다. 기준 행을 비우면 첫 행이 reference입니다.</p>
+  <div class="aligned-grid"><div><span class="field-label">Aligned FASTA</span><input class="file-input" id="file-aligned" type="file" accept=".fasta,.fa,.fas,.aln,.txt"><label class="file-button" for="file-aligned">파일 선택</label></div><div><label for="aligned-reference">기준 행 이름 <span>(일부만 입력 가능)</span></label><input id="aligned-reference" type="text" maxlength="200" spellcheck="false"></div></div>
+  <div class="button-row"><button id="load-aligned" type="button" disabled>정렬 파일 읽기</button></div></details>
+ <details class="support"><summary>지원 범위</summary><p class="hint" id="support-range"></p></details>
+</div>
+</div></details>
+
+<section id="result" hidden aria-label="결과">
+<div class="summary-bar"><div id="summary-line" class="stats"></div><p id="filter-line" class="hint" role="status"></p></div>
+<div class="workspace">
+ <aside class="side">
+  <details open class="mapped-only"><summary>보기 범위</summary>
+   <label for="search">이름 검색</label><input id="search" type="search" spellcheck="false" placeholder="accession 또는 이름">
+   <div class="two"><div><label for="sort">정렬</label><select id="sort"><option value="input">입력 순서</option><option value="name">이름</option><option value="identity-asc">identity 낮은 순</option><option value="identity-desc">identity 높은 순</option></select></div><div><label for="min-identity">최소 identity %</label><input id="min-identity" type="number" min="0" max="100" step="any" placeholder="제한 없음"></div></div>
+   <fieldset class="status-filter"><legend>표시할 상태</legend><label><input type="checkbox" data-status="mapped" checked>정렬됨</label><label><input type="checkbox" data-status="partial" checked>일부만 정렬</label><label><input type="checkbox" data-status="unmapped">정렬 안 됨</label><label><input type="checkbox" data-status="skipped">입력 오류</label></fieldset>
+  </details>
+  <details open id="annotation-panel" class="single-only" hidden><summary>Annotation</summary><div id="annotation-types" class="annotation-types"></div><p id="annotation-note" class="hint"></p></details>
+  <details open><summary>Primer</summary><div class="button-row"><button id="open-primer" type="button">Primer 등록</button></div><p class="hint">정렬 화면에서 구간을 끌면 Tm·Self-dimer를 보고 바로 등록할 수 있습니다.</p>
+   <details id="tm-panel"><summary>Tm 조건</summary><p class="hint">Oligo Thermodynamics와 같은 모델·기본값입니다.</p><div class="tm-grid"><label>온도 °C<input id="tm-temperature" type="number" step="any"></label><label>Na mM<input id="tm-na" type="number" step="any" min="0"></label><label>K mM<input id="tm-k" type="number" step="any" min="0"></label><label>NH₄ mM<input id="tm-nh4" type="number" step="any" min="0"></label><label>Mg mM<input id="tm-mg" type="number" step="any" min="0"></label><label>dNTP mM<input id="tm-dntp" type="number" step="any" min="0"></label><label>A nM<input id="tm-a" type="number" step="any" min="0"></label><label>B nM<input id="tm-b" type="number" step="any" min="0"></label></div></details>
+  </details>
+  <details open><summary>저장</summary><div class="button-row"><button id="save-project" type="button">프로젝트 저장</button></div><p class="hint">서열, 매핑, primer, 결합 현황, 화면 상태를 파일 하나에 저장합니다.</p><p id="project-state" class="hint" role="status"></p></details>
+  <details id="export-panel"><summary>내보내기</summary>
+   <p class="hint mapped-only">정렬 파일은 현재 표시된 서열 기준입니다. Geneious 가져오기는 아직 확인 전입니다. Reference GenBank와 SAM을 함께 쓰면 primer annotation까지 넘길 수 있습니다.</p>
+   <p class="hint single-only">서열과 primer 위치를 GenBank로 내보내면 원형 여부가 유지됩니다. Geneious 가져오기는 아직 확인 전입니다.</p>
+   <div class="export-list"><button class="mapped-only" data-export="sam" type="button">SAM</button><button class="mapped-only" data-export="summary" type="button">요약 CSV</button><button class="mapped-only" data-export="aligned" type="button">Aligned FASTA</button><button class="mapped-only" data-export="fasta" type="button">서열 FASTA</button><button data-annotation="genbank" type="button">Reference GenBank</button><button data-annotation="gff" type="button">Primer GFF3</button><button data-annotation="primers" type="button">Primer CSV</button></div>
+   <label class="check mapped-only"><input id="export-consensus" type="checkbox">Aligned FASTA에 Consensus 행 포함</label>
+   <p id="export-state" class="hint" role="status"></p>
+  </details>
+  <details><summary>수치 정의</summary><dl id="definitions" class="definitions"></dl></details>
+ </aside>
+ <div class="viewer-area">
+  <div class="view-tabs" role="tablist" aria-label="결과 화면"><button id="tab-viewer" role="tab" type="button" aria-selected="true">정렬 화면</button><button id="tab-primers" role="tab" type="button" aria-selected="false">Primer 목록 <span id="primer-count"></span></button><button id="tab-binding" class="mapped-only" role="tab" type="button" aria-selected="false">결합 현황</button><span id="forced-chip" class="forced" hidden><span id="forced-text"></span> <button id="forced-clear" type="button">해제</button></span></div>
+  <div id="pane-viewer">
+  <div class="toolbar single-only" hidden id="single-tools">
+   <label class="tool">형태<select id="topology"><option value="linear">선형</option><option value="circular">원형</option></select></label>
+   <label class="tool check"><input id="show-complement" type="checkbox">상보 가닥 표시</label>
+   <span class="tool-gap"></span>
+   <label class="tool">위치<input id="single-goto" type="number" min="1" step="1"></label><button id="single-goto-button" type="button">이동</button><span id="single-state" class="hint"></span>
+   <span class="tool-sep"></span><button id="back-to-list" type="button">목록으로</button>
+  </div>
+  <div class="toolbar mapped-only">
+   <label class="tool">확대<input id="zoom" type="range" min="0" max="6" step="1" value="0"></label>
+   <label class="tool">이름<select id="name-mode"><option value="both">Accession (Description)</option><option value="accession">Accession만</option><option value="description">Description만</option></select></label>
+   <label class="tool">비교<select id="compare"><option value="reference">Reference</option><option value="consensus">Consensus</option></select></label>
+   <label class="tool check"><input id="diff-only" type="checkbox">일치는 점으로</label>
+   <span class="tool-gap"></span>
+   <label class="tool">위치<input id="goto" type="number" min="1" step="1"></label><button id="goto-button" type="button">이동</button>
+   <span class="tool-sep"></span>
+   <span class="tool">변이 <span id="nav-scope" class="hint"></span></span><button id="prev-diff" type="button" aria-label="이전 변이">◀</button><button id="next-diff" type="button" aria-label="다음 변이">▶</button><span id="nav-state" class="hint"></span>
+  </div>
+  <div class="toolbar find-bar" role="search">
+   <label class="tool">찾기<input id="find-seq" type="text" maxlength="200" spellcheck="false" autocomplete="off" placeholder="서열 입력 후 Enter (Ctrl+F)"></label>
+   <label class="tool">범위<select id="find-scope"><option value="consensus">Consensus</option><option value="reference">Reference</option><option value="rows">모든 서열 (표시 순서)</option><option value="names">이름 (서열·primer)</option></select></label>
+   <button id="find-prev" type="button" aria-label="이전 찾기">◀</button><button id="find-next" type="button" aria-label="다음 찾기">▶</button>
+   <details id="find-options" class="find-options"><summary>옵션</summary><div class="find-panel"><label class="check"><input id="find-both" type="checkbox" checked>역상보도 찾기</label><label class="check"><input id="find-ambiguity-query" type="checkbox" checked>입력의 혼합염기 해석 (R, Y, N…)</label><label class="check"><input id="find-ambiguity-sequence" type="checkbox" checked>서열의 혼합염기 해석 (N 구간도 일치로 잡힘)</label><label class="tool">허용 mismatch<input id="find-mismatch" type="number" min="0" max="3" step="1" value="0"></label></div></details>
+   <span id="find-state" class="hint find-state" role="status"></span><button id="find-only" type="button" hidden>찾은 서열만 보기</button><button id="find-clear" type="button" hidden>지우기</button>
+  </div>
+  <div id="viewer" class="viewer mapped-only"><div class="viewer-scroll" tabindex="0" role="group" aria-label="정렬 화면. 방향키로 이동합니다."><div class="viewer-sticky"><canvas></canvas></div><div class="viewer-spacer"></div></div></div>
+  <div id="sequence-view" class="viewer single-only" hidden><div class="viewer-scroll" tabindex="0" role="group" aria-label="서열 화면. 드래그로 구간을 고릅니다."><div class="viewer-sticky"><canvas></canvas></div><div class="viewer-spacer"></div></div></div>
+  <div class="under-viewer"><p id="hover-line" class="hover-line" aria-live="off"></p><div class="legend mapped-only"><span><i class="sw sw-a"></i>A</span><span><i class="sw sw-c"></i>C</span><span><i class="sw sw-g"></i>G</span><span><i class="sw sw-t"></i>T</span><span><i class="sw sw-o"></i>기타</span><span><i class="sw sw-gap"></i>deletion</span><span><i class="sw sw-ins"></i>insertion 열</span><span>색칠: 비교 기준과 다름</span><span>빈칸: 정렬 밖</span><span><i class="sw sw-find"></i>찾은 위치</span><span>Identity <i class="sw sw-i1"></i>100% <i class="sw sw-i2"></i>미만 <i class="sw sw-i3"></i>30% 미만</span></div></div>
+  <div id="selection" class="selection" hidden><div class="selection-head"><strong id="selection-where"></strong><span id="selection-seq" class="mono"></span><button id="selection-clear" type="button">선택 해제</button></div>
+   <dl class="facts"><div><dt>길이</dt><dd id="selection-length"></dd></div><div><dt>GC</dt><dd id="selection-gc"></dd></div><div><dt>Tm</dt><dd id="selection-tm"></dd></div><div><dt>Self-dimer (IDT 유사 모델)</dt><dd id="selection-self"></dd></div></dl>
+   <div class="selection-actions"><label>방향<select id="selection-strand"><option value="+">표시 그대로 (+)</option><option value="-">역상보 (−)</option></select></label><button id="selection-copy" type="button">서열 복사</button><label>이름<input id="selection-name" type="text" maxlength="100"></label><label>Set<input id="selection-set" type="text" maxlength="60"></label><button id="selection-add" type="button" class="primary">Primer로 등록</button><span id="selection-state" class="hint" role="status"></span></div></div>
+  <div id="detail" class="detail" hidden><div class="detail-head"><h2 id="detail-title"></h2><div class="inline"><button id="copy-original" type="button">원본 FASTA 복사</button><button id="copy-oriented" type="button">reference 방향 FASTA 복사</button></div></div><dl id="detail-list" class="facts"></dl><p id="copy-state" class="hint" role="status"></p></div>
+  </div>
+  <div id="pane-primers" hidden><div class="pane-tools"><label>허용 mismatch<input id="opt-mismatch" type="number" min="0" max="10" step="1" value="3"></label><label>3′ 끝 완전일치 nt<input id="opt-end3-exact" type="number" min="0" max="10" step="1" value="0"></label><p class="hint">위치는 reference에서 찾고, 없으면 Consensus에서 찾습니다. 양쪽 방향을 모두 찾습니다.</p><button id="primer-copy" type="button">표 복사 (Excel)</button><span id="primer-state" class="hint" role="status"></span></div>
+   <p id="primer-empty" class="empty">등록한 primer가 없습니다. 왼쪽 Primer 등록을 누르거나 정렬 화면에서 구간을 끌어 등록하세요.</p>
+   <div class="table-wrap"><table class="data"><thead><tr><th>표시</th><th>Set</th><th>이름</th><th>서열 (5′→3′)</th><th>길이</th><th>혼합염기</th><th>Tm °C</th><th>GC %</th><th>위치</th><th>방향</th><th>상태</th><th></th></tr></thead><tbody id="primer-rows"></tbody></table></div></div>
+  <div id="pane-binding" hidden><div class="pane-tools"><button id="binding-run" class="primary" type="button">결합 현황 분석</button><button id="binding-cancel" type="button" hidden>취소</button><label>3′ 구간 nt<input id="opt-end3" type="number" min="1" max="10" step="1" value="3"></label><fieldset class="rule"><legend>사용자 조건</legend><label>3′ 끝 완전일치 nt<input id="opt-rule-end3" type="number" min="0" max="30" step="1" value="5"></label><label>전체 mismatch 이하<input id="opt-rule-mismatch" type="number" min="0" max="10" step="1" value="1"></label></fieldset><button id="binding-copy" type="button" disabled>표 복사 (Excel)</button><button id="binding-csv" type="button" disabled>표 CSV 저장</button><p id="binding-state" class="hint" role="status"></p></div>
+   <p class="hint">현재 표시 서열 기준입니다. 서열 비교 결과이며 증폭 성공을 뜻하지 않습니다. 건수는 수집 레코드 수로, 유행 비율이나 중요도가 아닙니다. <span id="binding-end3"></span></p>
+   <p id="binding-empty" class="empty">아직 분석하지 않았습니다.</p>
+   <div class="table-wrap"><table class="data"><thead><tr><th>Set</th><th>Primer</th><th>대상 서열</th><th>일치</th><th>조건 충족</th><th>1 mismatch</th><th>2+ mismatch</th><th>3′ mismatch</th><th>indel 포함</th><th>판정 불가</th><th>구간 미포함</th><th></th></tr></thead><tbody id="binding-rows"></tbody></table></div></div>
+ </div>
+</div>
+</section>
+<dialog id="primer-dialog" aria-labelledby="primer-dialog-title"><h2 id="primer-dialog-title">Primer 등록</h2><p class="hint">이름과 서열만 있으면 됩니다. Excel, CSV, TSV, FASTA 파일이나 표를 붙여넣으세요. LAMP는 F2, F1c 등 결합 부분을 각각 한 줄로 등록합니다.</p>
+ <span class="field-label">파일</span><input class="file-input" id="primer-file" type="file" accept=".xlsx,.csv,.tsv,.txt,.fasta,.fa"><label class="file-button" for="primer-file">파일 선택</label>
+ <label for="primer-paste">또는 붙여넣기</label><textarea id="primer-paste" rows="5" spellcheck="false" placeholder="이름[탭]서열"></textarea>
+ <label for="primer-set">Set 이름 <span>(파일에 없을 때)</span></label><input id="primer-set" type="text" maxlength="60">
+ <div id="primer-preview" hidden><div class="map-grid"><label>이름 열<select id="map-name"></select></label><label>서열 열<select id="map-sequence"></select></label><label>Set 열<select id="map-set"></select></label><label class="check"><input id="map-header" type="checkbox">첫 행은 머리글</label></div><div class="table-wrap short"><table class="data"><thead><tr><th>Set</th><th>이름</th><th>서열</th></tr></thead><tbody id="primer-preview-rows"></tbody></table></div><p id="primer-preview-note" class="hint"></p></div>
+ <p id="primer-error" class="error" role="alert"></p><div class="button-row"><button id="primer-add" class="primary" type="button" disabled>등록</button><button id="primer-cancel" type="button">닫기</button></div></dialog>
+<dialog id="variant-dialog" aria-labelledby="variant-title"><h2 id="variant-title"></h2><p id="variant-note" class="hint"></p><div class="table-wrap short"><table class="data"><thead><tr><th>구간 서열</th><th>건수</th><th>비율</th><th>primer와 차이</th></tr></thead><tbody id="variant-rows"></tbody></table></div><div class="button-row"><button id="variant-close" type="button">닫기</button></div></dialog>
+</main>
+<footer>정렬은 서열 비교 결과이며 증폭 성공이나 진단 성능을 뜻하지 않습니다. · <a href="NOTICE.md">소스·라이선스</a></footer>
+</body></html>
