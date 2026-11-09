@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 import {judge,judgeAligned,formatBases,formatBytes,formatDuration,repeatShare,REPEAT_WARNING_SHARE,LIMITS,BLOCKED_ADVICE} from './core/limits.mjs';
 import {mergeChunks} from './core/map-chunk.mjs';
-import {STRIDE,REF,REV,QS,QE,HITS,COFF,CN,samCigar,clips,toDisplay,fromDisplay,reverseComplementBytes,projectRow,recordLength} from './core/alignment.mjs';
+import {STRIDE,REF,REV,QS,QE,HITS,COFF,CN,samCigar,clips,toDisplay,fromDisplay,reverseComplementBytes,projectRow,recordLength,coversBase} from './core/alignment.mjs';
 import {RS,RS_MATCH,RS_MISMATCH,RS_AMBIG,RS_INS,RS_DEL,RS_REFEND,statusOf,STATUS_LABEL,summarize,identityFromStats,queryCoverage,referenceCoverage,POSITION_DEFINITIONS} from './core/stats.mjs';
 import {accessionOf,displayName,FLAG} from './core/parse.mjs';
 import {exampleFiles} from './core/example.mjs';
@@ -178,14 +178,19 @@ function currentOrder(){
 }
 const sameOrder=(a,b)=>{if(a.length!==b.length)return false;for(let i=0;i<a.length;i++)if(a[i]!==b[i])return false;return true;};
 let filterTimer=0;
+function consensusPercent(){const v=$('consensus-percent').value;if(v!=='custom')return Number(v);const n=Number($('consensus-custom').value);return Number.isFinite(n)&&n>=1&&n<=100?n:0;}
+const consensusLabel=()=>{const p=consensusPercent();return p?`Consensus ${p}%`:'Consensus';};
+function consensusChanged(){$('consensus-custom').hidden=$('consensus-percent').value!=='custom';if(!state.analysis||!state.stats)return;state.consensusId=(state.consensusId||0)+1;state.analysis.postMessage({type:'consensus',id:state.consensusId,percent:consensusPercent()});}
+$('consensus-percent').addEventListener('change',consensusChanged);$('consensus-custom').addEventListener('change',consensusChanged);
 function applyFilter(now=false){clearTimeout(filterTimer);filterTimer=setTimeout(()=>{
  find.hold();const base=currentOrder(),same=state.baseOrder&&sameOrder(state.baseOrder,base);state.baseOrder=base;const order=state.forced?base.filter(i=>state.forced.has(i)):base;state.order=order;state.baseChanged=!same;state.statsId++;viewer.setSelected(-1);$('detail').hidden=true;$('filter-line').textContent=`표시 ${order.length.toLocaleString()} / 전체 ${state.names.length.toLocaleString()} · Consensus 계산 중…`;
- state.analysis.postMessage({type:'stats',id:state.statsId,order});
+ viewer.clearRange();$('selection').hidden=true;state.analysis.postMessage({type:'stats',id:state.statsId,order,percent:consensusPercent()});
 },now?0:200);}
 function analysisMessage({data:d}){
  if(primers.handle(d)||find.handle(d))return;
+ if(d.type==='consensus-done'){if(d.id!==state.consensusId)return;state.stats.consensus=d.consensus;viewer.setConsensus(d.consensus,consensusLabel());state.variable=null;state.navIndex=-1;primers.onConsensus();find.onView();return;}
  if(d.type==='stats-done'){if(d.id!==state.statsId)return;progress(false);state.stats=d.stats;state.cols=d.cols;let max=0;for(const v of d.stats.coverage)if(v>max)max=v;
-  viewer.setData({S:state.S,names:state.names,order:state.order,cols:d.cols,stats:d.stats,ref:state.ref,refName:state.refName,maxCoverage:max});
+  viewer.consLabel=consensusLabel();viewer.setData({S:state.S,names:state.names,order:state.order,cols:d.cols,stats:d.stats,ref:state.ref,refName:state.refName,refFull:state.loaded.reference.name,maxCoverage:max});
   if(!state.primersReady){state.primersReady=true;primers.onData();}else if(state.baseChanged){primers.onConsensus();primers.onFilter();}
   let ins=0;for(const v of d.stats.insRows)if(v)ins++;let variable=0;for(const v of d.stats.identity)if(v<1)variable++;state.variable=null;state.navIndex=-1;$('nav-state').textContent='';updateNavScope();
   if(state.restoreScroll){const v=state.restoreScroll;state.restoreScroll=null;requestAnimationFrame(()=>{viewer.scroller.scrollLeft=v.left;viewer.scroller.scrollTop=v.top;});}
@@ -210,7 +215,7 @@ $('goto-button').addEventListener('click',goTo);$('goto').addEventListener('keyd
 function updateNavScope(){$('nav-scope').textContent=state.selectedRecord>=0?'(선택한 서열)':'(전체 위치)';}
 function variantColumns(){
  if(state.variable)return state.variable;const out=[],{colOf,refOfCol,total}=state.cols;
- if(state.selectedRecord>=0){const b=new Uint8Array(total),cmp=$('compare').value==='consensus'?state.stats.consensus:state.ref;projectRow(state.S,state.selectedRecord,state.cols,b,0,total);for(let c=0;c<total;c++){const v=b[c];if(!v)continue;const r=refOfCol[c];if(r<0?v!==45:v!==cmp[r])out.push(c);}}
+ if(state.selectedRecord>=0){const b=new Uint8Array(total),loose=$('compare').value==='consensus',cmp=loose?state.stats.consensus:state.ref;projectRow(state.S,state.selectedRecord,state.cols,b,0,total);for(let c=0;c<total;c++){const v=b[c];if(!v)continue;const r=refOfCol[c];if(r<0?v!==45:v!==cmp[r]&&!(loose&&coversBase(cmp[r],v)))out.push(c);}}
  else{const id=state.stats.identity;for(let r=0;r<state.ref.length;r++)if(id[r]<1)out.push(colOf[r]);}
  return state.variable=out;
 }
@@ -250,8 +255,8 @@ document.querySelectorAll('[data-export]').forEach(b=>b.addEventListener('click'
  }catch(e){if(e.name!=='AbortError')setError(e.message);}
 }));
 // Project file
-function viewState(){return {search:$('search').value,sort:$('sort').value,minIdentity:$('min-identity').value,status:Object.fromEntries([...document.querySelectorAll('[data-status]')].map(x=>[x.dataset.status,x.checked])),zoom:$('zoom').value,nameWidth:viewer.nameW,nameMode:$('name-mode').value,compare:$('compare').value,diffOnly:$('diff-only').checked,scrollLeft:viewer.scroller.scrollLeft,scrollTop:viewer.scroller.scrollTop};}
-function applyView(v){$('search').value=v.search;$('sort').value=v.sort;$('min-identity').value=v.minIdentity;document.querySelectorAll('[data-status]').forEach(x=>{x.checked=!!v.status[x.dataset.status];});$('zoom').value=v.zoom;viewer.setZoom(+v.zoom);if(v.nameWidth)viewer.setNameWidth(v.nameWidth);$('name-mode').value=v.nameMode??'both';viewer.setNameMode($('name-mode').value);$('compare').value=v.compare;viewer.setCompare(v.compare);$('diff-only').checked=v.diffOnly;viewer.setMode(v.diffOnly?'diff':'all');state.restoreScroll={left:v.scrollLeft,top:v.scrollTop};}
+function viewState(){return {search:$('search').value,sort:$('sort').value,minIdentity:$('min-identity').value,status:Object.fromEntries([...document.querySelectorAll('[data-status]')].map(x=>[x.dataset.status,x.checked])),zoom:$('zoom').value,consensusPercent:$('consensus-percent').value,consensusCustom:$('consensus-custom').value,nameWidth:viewer.nameW,nameMode:$('name-mode').value,compare:$('compare').value,diffOnly:$('diff-only').checked,scrollLeft:viewer.scroller.scrollLeft,scrollTop:viewer.scroller.scrollTop};}
+function applyView(v){$('consensus-percent').value=v.consensusPercent??'0';$('consensus-custom').value=v.consensusCustom??'';$('consensus-custom').hidden=$('consensus-percent').value!=='custom';$('search').value=v.search;$('sort').value=v.sort;$('min-identity').value=v.minIdentity;document.querySelectorAll('[data-status]').forEach(x=>{x.checked=!!v.status[x.dataset.status];});$('zoom').value=v.zoom;viewer.setZoom(+v.zoom);if(v.nameWidth)viewer.setNameWidth(v.nameWidth);$('name-mode').value=v.nameMode??'both';viewer.setNameMode($('name-mode').value);$('compare').value=v.compare;viewer.setCompare(v.compare);$('diff-only').checked=v.diffOnly;viewer.setMode(v.diffOnly?'diff':'all');state.restoreScroll={left:v.scrollLeft,top:v.scrollTop};}
 async function saveProject(){
  const name=(state.refName||'mapping').replace(/[^\w.-]+/g,'_')+'.jsumap';let sink;try{sink=await sinkFor(name,'application/octet-stream');}catch(e){if(e.name!=='AbortError')setError(e.message);return;}
  const p=primers.snapshot(),ref=state.loaded.reference;state.exportSink=sink;state.projectSave={name,started:performance.now()};$('save-project').disabled=true;$('project-state').textContent='저장 중…';

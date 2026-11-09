@@ -7,9 +7,19 @@ export const POSITION_DEFINITIONS=Object.freeze({
  coverage:'위치를 덮는 서열 수. 정렬 구간 안의 deletion을 포함하고, 정렬 밖은 세지 않습니다.',
  called:'그 위치에서 A/C/G/T로 읽힌 서열 수.',
  identity:'최다 염기 수 ÷ (A+C+G+T+deletion). N 등 혼합염기는 분모에서 뺍니다.',
- consensus:'현재 표시 서열의 최다 염기. 동률이면 IUPAC 코드, 덮는 서열이 없으면 표시하지 않습니다. Reference는 포함하지 않습니다.'});
+ consensus:'기본은 현재 표시 서열의 최다 염기입니다. 기준 %를 정하면 많은 염기부터 더해 A/C/G/T 판독의 그 비율에 도달할 때까지의 염기를 IUPAC 코드로 표시합니다. 같은 수의 염기는 함께 포함합니다. deletion이 최다이면 -, 덮는 서열이 없으면 표시하지 않습니다. Reference는 포함하지 않습니다.'});
 
-export function computeStats(S,order,refLength){
+const BASES=[1,2,4,8];
+// percent 0 keeps only the most frequent base. Bases with equal counts always enter together, so the result never depends on input order.
+function codeAt(counts,b,percent){
+ const d=counts[b+5];let max=0,total=0;for(let k=0;k<4;k++){const v=counts[b+k];total+=v;if(v>max)max=v;}
+ if(d>max)return GAP;if(!max)return 78;
+ let mask=0,level=max,sum=0;
+ for(;;){let next=0;for(let k=0;k<4;k++){const v=counts[b+k];if(v===level){mask|=BASES[k];sum+=v;}else if(v<level&&v>next)next=v;}if(!next||sum*100>=percent*total)break;level=next;}
+ return IUPAC[mask].charCodeAt(0);
+}
+export function buildConsensus(counts,coverage,percent=0){const L=coverage.length,out=new Uint8Array(L);for(let r=0;r<L;r++)if(coverage[r])out[r]=codeAt(counts,r*6,percent);return out;}
+export function computeStats(S,order,refLength,percent=0){
  const L=refLength,row=new Uint8Array(L),ins=new Uint16Array(L),counts=new Uint32Array(L*6),insMax=new Uint16Array(L),insRows=new Uint32Array(L);
  for(let n=0;n<order.length;n++){const i=order[n];if(!expandRow(S,i,row,ins))continue;
   for(let r=0;r<L;r++){const x=row[r];if(x)counts[r*6+SLOT[x]]++;const m=ins[r];if(m){insRows[r]++;if(m>insMax[r])insMax[r]=m;}}}
@@ -17,10 +27,7 @@ export function computeStats(S,order,refLength){
  for(let r=0;r<L;r++){const b=r*6,a=counts[b],c=counts[b+1],g=counts[b+2],t=counts[b+3],o=counts[b+4],d=counts[b+5];
   const acgt=a+c+g+t,max=Math.max(a,c,g,t);coverage[r]=acgt+o+d;called[r]=acgt;
   identity[r]=acgt+d?Math.max(max,d)/(acgt+d):NaN;
-  if(!coverage[r]){consensus[r]=0;continue;}
-  if(d>max){consensus[r]=GAP;continue;}
-  if(!max){consensus[r]=78;continue;}
-  const mask=(a===max?1:0)|(c===max?2:0)|(g===max?4:0)|(t===max?8:0);consensus[r]=IUPAC[mask].charCodeAt(0);}
+  if(coverage[r])consensus[r]=codeAt(counts,b,percent);}
  return {coverage,called,identity,consensus,counts,insMax,insRows};
 }
 // Per-record numbers for the table and filters. Six ints per record.

@@ -8,7 +8,7 @@ import {toDisplay} from './core/alignment.mjs';
 import {referenceGenbank,primerGff3,primerCsv,primerRows,bindingCsv,endOf,PRIMER_COLUMNS} from './core/annotation-export.mjs';
 const $=id=>document.getElementById(id),dec=new TextDecoder();
 // Above this much work the table waits for the button; measured about 1 second on the stage-1 PC.
-const AUTO_BINDING_WORK=2e6,SELECTION_DELAY_MS=180;
+const AUTO_BINDING_WORK=2e6,SELECTION_DELAY_MS=180,MAX_COPY_CELLS=30e6;
 const el=(tag,props={},...kids)=>{const e=document.createElement(tag);for(const [k,v] of Object.entries(props)){if(k==='class')e.className=v;else if(k.startsWith('on'))e.addEventListener(k.slice(2),v);else if(k==='data')Object.assign(e.dataset,v);else e[k]=v;}e.append(...kids.filter(x=>x!==null&&x!==undefined));return e;};
 const pct=(n,total)=>total?(n/total*100).toFixed(1)+'%':'–';
 
@@ -102,19 +102,26 @@ export function setupPrimers(host){
 
  // Selected range
  let timer=0;
- function rangeSequence(r){
-  const c=host.cols();let bytes;const w=r.c1-r.c0,buf=new Uint8Array(w);
-  if(r.source==='row'&&r.row>=0)host.project(r.row,buf,r.c0,r.c1);
-  else{const src=r.source==='consensus'?host.consensus():host.reference();for(let k=0;k<w;k++){const q=c.refOfCol[r.c0+k];buf[k]=q>=0?src[q]:0;}}
-  bytes=[...buf].filter(x=>x&&x!==45);return dec.decode(Uint8Array.from(bytes));
- }
- function onRange(r){P.range=r;const seq=rangeSequence(r),c=host.cols();let a=r.c0,b=r.c1-1;while(a<r.c1&&c.refOfCol[a]<0)a++;while(b>=r.c0&&c.refOfCol[b]<0)b--;
-  P.selection={seq,start:a<r.c1?c.refOfCol[a]:-1,end:b>=r.c0?c.refOfCol[b]+1:-1,source:r.source};
-  $('selection').hidden=false;const name=r.source==='consensus'?'Consensus':r.source==='row'?host.rowName(r.row):'Reference';
-  $('selection-where').textContent=`${name} · ${P.selection.start>=0?toDisplay(P.selection.start).toLocaleString()+'–'+P.selection.end.toLocaleString():'insertion 열'}`;
-  $('selection-seq').textContent=seq.length>90?seq.slice(0,90)+'…':seq;$('selection-length').textContent=`${seq.length} nt`;
+ // Lanes in screen order: -2 consensus, -1 reference, 0.. shown rows. The single sequence screen sends a reference range without lanes.
+ const firstLane=r=>r.from??-1,laneCount=r=>r.from===undefined?1:r.to-r.from+1;
+ const laneName=lane=>lane===-2?'Consensus':lane===-1?'Reference':host.rowName(lane);
+ function laneBytes(lane,r,buf){const c=host.cols();buf.fill(0);if(lane>=0)host.project(lane,buf,r.c0,r.c1);else{const src=lane===-2?host.consensus():host.reference();for(let k=0;k<r.c1-r.c0;k++){const q=c.refOfCol[r.c0+k];buf[k]=q>=0?src[q]:0;}}return buf;}
+ // Columns stay intact when copying: a base, or - where this lane has none.
+ function laneText(lane,r,buf){laneBytes(lane,r,buf);for(let k=0;k<buf.length;k++)if(!buf[k])buf[k]=45;return dec.decode(buf);}
+ const reverseGapped=s=>s.split('-').map(reverseComplement).reverse().join('-');
+ function copyText(){const r=P.range,n=laneCount(r),w=r.c1-r.c0;if(n*w>MAX_COPY_CELLS)return {error:`선택이 ${n.toLocaleString()}줄로 너무 큽니다. 내보내기의 Aligned FASTA를 쓰세요.`};const buf=new Uint8Array(w);
+  if(n===1){const t=laneText(firstLane(r),r,buf);return {text:$('selection-strand').value==='-'?reverseGapped(t):t};}
+  const out=[];for(let k=0;k<n;k++){const lane=r.from+k;out.push(`>${laneName(lane)}\n${laneText(lane,r,buf)}\n`);}return {text:out.join('')};}
+ function onRange(r){P.range=r;const c=host.cols(),n=laneCount(r),buf=new Uint8Array(r.c1-r.c0);let a=r.c0,b=r.c1-1;while(a<r.c1&&c.refOfCol[a]<0)a++;while(b>=r.c0&&c.refOfCol[b]<0)b--;
+  const start=a<r.c1?c.refOfCol[a]:-1,end=b>=r.c0?c.refOfCol[b]+1:-1,where=start>=0?toDisplay(start).toLocaleString()+'–'+end.toLocaleString():'insertion 열';
+  $('selection').hidden=false;$('selection').classList.toggle('is-multi',n>1);$('selection-state').textContent='';clearTimeout(timer);
+  if(n>1){P.selection=null;$('selection-where').textContent=`${n.toLocaleString()}줄 · ${where}`;$('selection-seq').textContent='';$('selection-length').textContent=`${buf.length.toLocaleString()} 열`;return;}
+  const lane=firstLane(r),shown=laneText(lane,r,buf),seq=shown.replaceAll('-','');
+  P.selection={seq,start,end,source:r.source};
+  $('selection-where').textContent=`${laneName(lane)} · ${where}`;
+  $('selection-seq').textContent=shown.length>90?shown.slice(0,90)+'…':shown;$('selection-length').textContent=seq.length===shown.length?`${seq.length} nt`:`${seq.length} nt (열 ${shown.length})`;
   for(const id of ['selection-gc','selection-tm','selection-self'])$(id).textContent='…';$('selection-self').classList.remove('warn');
-  clearTimeout(timer);timer=setTimeout(analyze,SELECTION_DELAY_MS);}
+  timer=setTimeout(analyze,SELECTION_DELAY_MS);}
  function orient(){return $('selection-strand').value==='-'?reverseComplementSafe(P.selection.seq):P.selection.seq;}
  const reverseComplementSafe=s=>reverseComplement(s);
  function analyze(){const s=P.selection;if(!s?.seq)return;if(!/^[ACGTRYSWKMBDHVN]+$/.test(s.seq))return;worker.postMessage({id:++P.selectionId,sequence:orient(),conditions:P.conditions});}
@@ -124,7 +131,9 @@ export function setupPrimers(host){
   const f=r.self;$('selection-self').textContent=f.status==='ok'?`최저 ${f.text} kcal/mol · 구조 ${f.structures.toLocaleString()}개`+(f.variants>1?` · 변이 ${f.variants}종`:'')+(f.warning?' · ≤ −9 경고':''):f.status==='none'?'검출 구조 없음':`N/A (${f.reason})`;$('selection-self').classList.toggle('warn',!!f.warning);};
  $('selection-strand').addEventListener('change',analyze);
  $('selection-clear').addEventListener('click',()=>{host.viewer.clearRange();$('selection').hidden=true;P.selection=null;});
- $('selection-copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(orient());$('selection-state').textContent='복사했습니다.';}catch{$('selection-state').textContent='복사에 실패했습니다.';}});
+ $('selection-copy').addEventListener('click',async()=>{const c=copyText();if(c.error){$('selection-state').textContent=c.error;return;}try{await navigator.clipboard.writeText(c.text);$('selection-state').textContent='복사했습니다.';}catch{$('selection-state').textContent='복사에 실패했습니다.';}});
+ // The copy event needs no clipboard permission. Text fields and text the user selected keep the normal copy.
+ document.addEventListener('copy',e=>{const a=document.activeElement;if(!P.range||$('selection').hidden||$('pane-viewer').hidden||document.querySelector('dialog[open]')||a?.matches?.('input:not([type=checkbox]),textarea')||String(getSelection()))return;const c=copyText();if(c.error){$('selection-state').textContent=c.error;return;}e.clipboardData.setData('text/plain',c.text);e.preventDefault();$('selection-state').textContent='복사했습니다.';});
  $('selection-add').addEventListener('click',()=>{const s=P.selection;if(!s?.seq)return;const n=normalizeSequence(orient());if(n.error){$('selection-state').textContent=n.error;return;}if(s.start<0||s.end-s.start!==s.seq.length){$('selection-state').textContent='insertion이나 deletion이 포함된 구간은 위치를 고정할 수 없습니다. Primer 등록에서 서열로 입력하세요.';return;}
   const name=$('selection-name').value.trim();if(!name){$('selection-state').textContent='이름을 입력하세요.';$('selection-name').focus();return;}
   const strand=$('selection-strand').value==='-'?-1:1,form=strand>0?n.sequence:reverseComplement(n.sequence),hit=findSites(host.reference().subarray(s.start,s.end),n.sequence,{maxMismatch:n.sequence.length}).find(h=>h.strand===strand);

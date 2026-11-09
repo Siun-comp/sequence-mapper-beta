@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Holds its own copy of the dataset so filtering and exports never freeze the screen.
-import {computeStats,computeRecordStats} from '../core/stats.mjs';
+import {computeStats,computeRecordStats,buildConsensus} from '../core/stats.mjs';
 import {buildColumns} from '../core/alignment.mjs';
 import {summaryCsv,samFile,alignedFasta,selectedFasta} from '../core/export.mjs';
 import {computeBinding} from '../core/binding.mjs';
@@ -16,8 +16,9 @@ self.onmessage=async({data:d})=>{
  if(d.type==='find-cancel'){findRun++;return;}
  try{
   if(d.type==='init'){const R=computeRecordStats(d.S,d.ref);ctx={...d,R};self.postMessage({type:'init-done',R});return;}
-  if(d.type==='stats'){const stats=computeStats(ctx.S,d.order,ctx.ref.length);ctx.stats=stats;ctx.cols=buildColumns(stats.insMax);
+  if(d.type==='stats'){const stats=computeStats(ctx.S,d.order,ctx.ref.length,d.percent);ctx.stats=stats;ctx.cols=buildColumns(stats.insMax);
    self.postMessage({type:'stats-done',id:d.id,stats,cols:ctx.cols});return;}
+  if(d.type==='consensus'){ctx.stats.consensus=buildConsensus(ctx.stats.counts,ctx.stats.coverage,d.percent);self.postMessage({type:'consensus-done',id:d.id,consensus:ctx.stats.consensus});return;}
   if(d.type==='binding'){const run=++bindingRun,gen=computeBinding(ctx.S,d.order,d.primers,ctx.ref.length,d.options);
    // Yields between slices so a cancel message can arrive.
    for(;;){const x=gen.next();if(x.done){self.postMessage({type:'binding-done',id:d.id,...x.value},[x.value.cats.buffer]);return;}

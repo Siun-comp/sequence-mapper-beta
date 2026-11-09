@@ -8,6 +8,9 @@ export const OPS='MIDNSHP=X';
 const COMP=new Uint8Array(256);
 for(const [a,b] of Object.entries({A:'T',C:'G',G:'C',T:'A',R:'Y',Y:'R',S:'S',W:'W',K:'M',M:'K',B:'V',V:'B',D:'H',H:'D',N:'N'}))COMP[a.charCodeAt(0)]=b.charCodeAt(0);
 export const GAP=45;
+const CODE=new Uint8Array(256);for(const [k,v] of Object.entries({A:1,C:2,G:4,T:8,R:5,Y:10,S:6,W:9,K:12,M:3,B:14,D:13,H:11,V:7,N:15}))CODE[k.charCodeAt(0)]=v;
+// True when every base meant by `base` is included in the consensus code.
+export const coversBase=(code,base)=>!!CODE[code]&&!!CODE[base]&&!(CODE[base]&~CODE[code]);
 export const complement=c=>COMP[c]||78;
 export const toDisplay=pos0=>pos0+1;
 export const fromDisplay=pos1=>pos1-1;
