@@ -19,7 +19,7 @@ self.onmessage=async({data:d})=>{
   if(d.type==='stats'){const stats=computeStats(ctx.S,d.order,ctx.ref.length,d.percent);ctx.stats=stats;ctx.cols=buildColumns(stats.insMax);
    self.postMessage({type:'stats-done',id:d.id,stats,cols:ctx.cols});return;}
   if(d.type==='consensus'){ctx.stats.consensus=buildConsensus(ctx.stats.counts,ctx.stats.coverage,d.percent);self.postMessage({type:'consensus-done',id:d.id,consensus:ctx.stats.consensus});return;}
-  if(d.type==='binding'){const run=++bindingRun,gen=computeBinding(ctx.S,d.order,d.primers,ctx.ref.length,d.options);
+  if(d.type==='binding'){const run=++bindingRun,gen=computeBinding(ctx.S,d.order,d.primers,ctx.ref.length,{...d.options,reference:d.options.includeReference?ctx.ref:null});
    // Yields between slices so a cancel message can arrive.
    for(;;){const x=gen.next();if(x.done){self.postMessage({type:'binding-done',id:d.id,...x.value},[x.value.cats.buffer]);return;}
     await new Promise(r=>setTimeout(r));if(run!==bindingRun)return;self.postMessage({type:'binding-progress',id:d.id,done:x.value,total:d.order.length});}}

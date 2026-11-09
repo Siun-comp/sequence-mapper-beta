@@ -13,7 +13,7 @@ const el=(tag,props={},...kids)=>{const e=document.createElement(tag);for(const 
 const pct=(n,total)=>total?(n/total*100).toFixed(1)+'%':'–';
 
 export function setupPrimers(host){
- const P={list:[],nextId:1,options:{maxMismatch:3,end3:3,end3Exact:0,ruleEnd3:5,ruleMismatch:1},binding:null,stale:true,running:false,runId:0,draft:null,conditions:{...DEFAULT_CONDITIONS},range:null,selectionId:0};
+ const P={list:[],nextId:1,options:{maxMismatch:3,end3:3,end3Exact:0,ruleEnd3:5,ruleMismatch:1},binding:null,includeReference:false,stale:true,running:false,runId:0,draft:null,conditions:{...DEFAULT_CONDITIONS},range:null,selectionId:0};
  const worker=new Worker('workers/selection-worker.mjs',{type:'module'});
 
  // Placement
@@ -73,17 +73,17 @@ export function setupPrimers(host){
   const primers=placed().map(p=>({id:p.id,name:p.name,set:p.set,sequence:p.sequence,site:{start:p.site.start,end:p.site.end,strand:p.site.strand}}));if(!primers.length){$('binding-state').textContent='위치가 정해진 primer가 없습니다.';return;}
   if(P.running)host.analysis().postMessage({type:'binding-cancel'});
   P.running=true;const id=++P.runId,order=host.baseOrder();P.order=order;$('binding-run').disabled=true;$('binding-cancel').hidden=false;$('binding-state').classList.remove('stale');$('binding-state').textContent='분석 중…';
-  host.analysis().postMessage({type:'binding',id,order,primers,options:{end3:P.options.end3,rule:{end3:P.options.ruleEnd3,maxMismatch:P.options.ruleMismatch}}});
+  host.analysis().postMessage({type:'binding',id,order,primers,options:{end3:P.options.end3,includeReference:P.includeReference,rule:{end3:P.options.ruleEnd3,maxMismatch:P.options.ruleMismatch}}});
  }
- function done(d){if(d.id!==P.runId)return;P.running=false;P.binding=d;P.stale=false;$('binding-run').disabled=false;$('binding-cancel').hidden=true;$('binding-state').textContent=`${d.n.toLocaleString()}개 서열 · primer ${d.result.length}개 분석 완료`;renderBinding();}
+ function done(d){if(d.id!==P.runId)return;P.running=false;P.binding=d;P.stale=false;$('binding-run').disabled=false;$('binding-cancel').hidden=true;$('binding-state').textContent=`${d.n.toLocaleString()}개 서열${d.reference?'(Reference 포함)':''} · primer ${d.result.length}개 분석 완료`;renderBinding();}
  function handle(d){if(d.type==='binding-progress'){if(d.id===P.runId)$('binding-state').textContent=`분석 중 ${d.done.toLocaleString()} / ${d.total.toLocaleString()}`;return true;}if(d.type==='binding-done'){done(d);return true;}return false;}
  $('binding-run').addEventListener('click',run);
  $('binding-cancel').addEventListener('click',()=>{host.analysis().postMessage({type:'binding-cancel'});P.running=false;P.runId++;$('binding-run').disabled=false;$('binding-cancel').hidden=true;$('binding-state').textContent='분석을 취소했습니다.';});
  const COLS=[[CAT.MATCH,'일치'],['rule','조건 충족'],[CAT.MM1,'1 mismatch'],[CAT.MM2,'2+ mismatch'],['end3',"3′ mismatch"],[CAT.INDEL,'indel 포함'],[CAT.UNRESOLVED,'판정 불가'],[CAT.UNCOVERED,'구간 미포함']];
  const value=(t,c)=>c==='end3'?t.end3:c==='rule'?t.rule:t.counts[c];
- const ruleText=r=>`3′ 끝 ${r.end3} nt 완전일치, 전체 mismatch ${r.maxMismatch}개 이하`;
+ const ruleText=r=>`3′ 끝 ${r.end3} nt 완전일치, 전체 mismatch ${r.maxMismatch}개 이하`,refNote=b=>b.reference?'대상 서열에는 목록에서 지정한 Reference 1건이 포함됩니다. ':'';
  function renderBinding(){
-  const b=P.binding,body=$('binding-rows');body.replaceChildren();$('binding-empty').hidden=!!b;$('binding-copy').disabled=!b;$('binding-csv').disabled=!b;if(!b)return;$('binding-end3').textContent=`3′ mismatch는 3′ 끝 ${b.end3} nt 안의 mismatch 건수이고, 조건 충족은 ${ruleText(b.rule)}인 서열 수입니다. 완전일치를 포함하며 indel·판정 불가·구간 미포함은 제외합니다. 두 칸은 다른 칸과 겹칩니다.`;
+  const b=P.binding,body=$('binding-rows');body.replaceChildren();$('binding-empty').hidden=!!b;$('binding-copy').disabled=!b;$('binding-csv').disabled=!b;if(!b)return;$('binding-end3').textContent=`${refNote(b)}3′ mismatch는 3′ 끝 ${b.end3} nt 안의 mismatch 건수이고, 조건 충족은 ${ruleText(b.rule)}인 서열 수입니다. 완전일치를 포함하며 indel·판정 불가·구간 미포함은 제외합니다. 두 칸은 다른 칸과 겹칩니다.`;
   b.result.forEach((t,index)=>{const tr=el('tr',{},el('td',{},t.set||'–'),el('td',{},el('button',{type:'button',class:'link',textContent:t.name,onclick(){focus(t.id);}})),el('td',{class:'num'},t.total.toLocaleString()));
    for(const [c,label] of COLS){const n=value(t,c);tr.append(el('td',{class:'num'},n?el('button',{type:'button',class:'link cell',title:label+' 서열만 보기',ariaLabel:`${t.name} ${label} ${n}건 보기`,onclick(){show(index,c,label);},textContent:n.toLocaleString()}):'0',el('small',{},' '+pct(n,t.total))));}
    tr.append(el('td',{},el('button',{type:'button',textContent:`변이형 ${t.variantCount.toLocaleString()}`,onclick(){variants(t);}})));body.append(tr);});
@@ -91,12 +91,12 @@ export function setupPrimers(host){
  function show(index,c,label){const b=P.binding,t=b.result[index],list=recordsInCell(b.cats,b.n,index,P.order,c);host.forceRecords(list,`${t.name} · ${label}`);focus(t.id);}
  function variants(t){$('variant-title').textContent=`${t.name} 구간 변이형 (5′→3′, primer 방향)`;$('variant-note').textContent=`서로 다른 형태 ${t.variantCount.toLocaleString()}개`+(t.variantCount>t.variants.length?` 중 많은 순서 ${t.variants.length}개`:'')+'. 건수는 레코드 수입니다.';$('variant-rows').replaceChildren(...t.variants.map(v=>el('tr',{},el('td',{class:'mono'},v.sequence),el('td',{class:'num'},v.count.toLocaleString()),el('td',{class:'num'},pct(v.count,t.total)),el('td',{class:'num'},String(v.differences)))));$('variant-dialog').showModal();}
  $('variant-close').addEventListener('click',()=>$('variant-dialog').close());
- $('binding-csv').addEventListener('click',()=>host.saveText('binding_summary.csv','text/csv',bindingCsv(P.binding,COLS,value,`조건 충족: ${ruleText(P.binding.rule)}. ${BINDING_NOTE}`)));
+ $('binding-csv').addEventListener('click',()=>host.saveText('binding_summary.csv','text/csv',bindingCsv(P.binding,COLS,value,`${refNote(P.binding)}조건 충족: ${ruleText(P.binding.rule)}. ${BINDING_NOTE}`)));
  function tableText(){const b=P.binding,head=['Set','Primer','대상 서열',...COLS.map(c=>c[1])],rows=b.result.map(t=>[t.set,t.name,t.total,...COLS.map(([c])=>value(t,c))]);return {head,rows};}
  // Excel keeps the columns from the HTML form; the plain text is the fallback.
  async function copyTable(head,rows,note,status){const text=[head,...rows].map(r=>r.join('\t')).join('\n')+(note?`\n${note}`:'');const cell=(t,v)=>{const x=document.createElement(t);x.textContent=v;x.style.cssText="font:9pt 'Malgun Gothic'";return x.outerHTML;};const html=`<table>${[head.map(h=>cell('th',h)).join(''),...rows.map(r=>r.map(v=>cell('td',v)).join(''))].map(r=>`<tr>${r}</tr>`).join('')}</table>`;
   try{await navigator.clipboard.write([new ClipboardItem({'text/plain':new Blob([text],{type:'text/plain'}),'text/html':new Blob([html],{type:'text/html'})})]);status.textContent='표를 복사했습니다.';}catch{try{await navigator.clipboard.writeText(text);status.textContent='표를 일반 텍스트로 복사했습니다.';}catch{status.textContent='복사에 실패했습니다.';}}}
- $('binding-copy').addEventListener('click',()=>{const {head,rows}=tableText();copyTable(head,rows,`조건 충족: ${ruleText(P.binding.rule)}\n${BINDING_NOTE}`,$('binding-state'));});
+ $('binding-copy').addEventListener('click',()=>{const {head,rows}=tableText();copyTable(head,rows,`${refNote(P.binding)}조건 충족: ${ruleText(P.binding.rule)}\n${BINDING_NOTE}`,$('binding-state'));});
  const exportOptions=()=>({length:host.reference().length,metrics});
  $('primer-copy').addEventListener('click',()=>copyTable(PRIMER_COLUMNS,primerRows(P.list,exportOptions()),'',$('primer-state')));
 
@@ -109,8 +109,8 @@ export function setupPrimers(host){
  // Columns stay intact when copying: a base, or - where this lane has none.
  function laneText(lane,r,buf){laneBytes(lane,r,buf);for(let k=0;k<buf.length;k++)if(!buf[k])buf[k]=45;return dec.decode(buf);}
  const reverseGapped=s=>s.split('-').map(reverseComplement).reverse().join('-');
- function copyText(){const r=P.range,n=laneCount(r),w=r.c1-r.c0;if(n*w>MAX_COPY_CELLS)return {error:`선택이 ${n.toLocaleString()}줄로 너무 큽니다. 내보내기의 Aligned FASTA를 쓰세요.`};const buf=new Uint8Array(w);
-  if(n===1){const t=laneText(firstLane(r),r,buf);return {text:$('selection-strand').value==='-'?reverseGapped(t):t};}
+ function copyText(reverse=false){const r=P.range,n=laneCount(r),w=r.c1-r.c0;if(n*w>MAX_COPY_CELLS)return {error:`선택이 ${n.toLocaleString()}줄로 너무 큽니다. 내보내기의 Aligned FASTA를 쓰세요.`};const buf=new Uint8Array(w);
+  if(n===1){const t=laneText(firstLane(r),r,buf);return {text:reverse?reverseGapped(t):t};}
   const out=[];for(let k=0;k<n;k++){const lane=r.from+k;out.push(`${laneText(lane,r,buf)}\n`);}return {text:out.join('')};}
  function onRange(r){P.range=r;const c=host.cols(),n=laneCount(r),buf=new Uint8Array(r.c1-r.c0);let a=r.c0,b=r.c1-1;while(a<r.c1&&c.refOfCol[a]<0)a++;while(b>=r.c0&&c.refOfCol[b]<0)b--;
   const start=a<r.c1?c.refOfCol[a]:-1,end=b>=r.c0?c.refOfCol[b]+1:-1,where=start>=0?toDisplay(start).toLocaleString()+'–'+end.toLocaleString():'insertion 열';
@@ -129,26 +129,32 @@ export function setupPrimers(host){
   $('selection-gc').textContent=g.min===g.max?`${g.min.toFixed(1)}%`:`${g.min.toFixed(1)}–${g.max.toFixed(1)}%`;
   const t=r.tm;$('selection-tm').textContent=t.status==='ok'?(t.variants>1?`${t.min.toFixed(1)}–${t.max.toFixed(1)} °C · 평균 ${t.mean.toFixed(1)} · 변이 ${t.variants}종`:`${t.mean.toFixed(1)} °C`):`N/A (${t.reason})`;$('selection-tm').title=t.model??'';
   const f=r.self;$('selection-self').textContent=f.status==='ok'?`최저 ${f.text} kcal/mol · 구조 ${f.structures.toLocaleString()}개`+(f.variants>1?` · 변이 ${f.variants}종`:'')+(f.warning?' · ≤ −9 경고':''):f.status==='none'?'검출 구조 없음':`N/A (${f.reason})`;$('selection-self').classList.toggle('warn',!!f.warning);};
- $('selection-strand').addEventListener('change',analyze);
+ $('selection-strand').addEventListener('change',()=>{$('selection-dialog-seq').textContent=orient();analyze();});
  const clearSelection=()=>{host.viewer.clearRange();$('selection').hidden=true;P.selection=null;};
  $('selection-clear').addEventListener('click',clearSelection);
  // Esc keeps its meaning in dialogs and text fields; the find box handles its own.
  document.addEventListener('keydown',e=>{if(e.key!=='Escape'||e.defaultPrevented||$('selection').hidden||document.querySelector('dialog[open]')||document.activeElement?.matches?.('input:not([type=checkbox],[type=range]),textarea,select'))return;clearSelection();});
- $('selection-copy').addEventListener('click',async()=>{const c=copyText();if(c.error){$('selection-state').textContent=c.error;return;}try{await navigator.clipboard.writeText(c.text);$('selection-state').textContent='복사했습니다.';}catch{$('selection-state').textContent='복사에 실패했습니다.';}});
+ const copyButton=reverse=>async()=>{const c=copyText(reverse);if(c.error){$('selection-state').textContent=c.error;return;}try{await navigator.clipboard.writeText(c.text);$('selection-state').textContent=reverse?'역상보를 복사했습니다.':'복사했습니다.';}catch{$('selection-state').textContent='복사에 실패했습니다.';}};
+ $('selection-copy').addEventListener('click',copyButton(false));$('selection-copy-rc').addEventListener('click',copyButton(true));
  // The copy event needs no clipboard permission. Text fields and text the user selected keep the normal copy.
  document.addEventListener('copy',e=>{const a=document.activeElement;if(!P.range||$('selection').hidden||$('pane-viewer').hidden||document.querySelector('dialog[open]')||a?.matches?.('input:not([type=checkbox]),textarea')||String(getSelection()))return;const c=copyText();if(c.error){$('selection-state').textContent=c.error;return;}e.clipboardData.setData('text/plain',c.text);e.preventDefault();$('selection-state').textContent='복사했습니다.';});
- $('selection-add').addEventListener('click',()=>{const s=P.selection;if(!s?.seq)return;const n=normalizeSequence(orient());if(n.error){$('selection-state').textContent=n.error;return;}if(s.start<0||s.end-s.start!==s.seq.length){$('selection-state').textContent='insertion이나 deletion이 포함된 구간은 위치를 고정할 수 없습니다. Primer 등록에서 서열로 입력하세요.';return;}
-  const name=$('selection-name').value.trim();if(!name){$('selection-state').textContent='이름을 입력하세요.';$('selection-name').focus();return;}
+ // The strand choice lives in the dialog, so a closed dialog always means the shown strand.
+ const addDialog=$('selection-dialog');
+ $('selection-open-add').addEventListener('click',()=>{const s=P.selection;if(!s?.seq)return;if(s.start<0||s.end-s.start!==s.seq.length){$('selection-state').textContent='insertion이나 deletion이 포함된 구간은 위치를 고정할 수 없습니다. Primer 등록에서 서열로 입력하세요.';return;}$('selection-dialog-where').textContent=$('selection-where').textContent;$('selection-dialog-seq').textContent=orient();$('selection-dialog-error').textContent='';addDialog.showModal();$('selection-name').focus();});
+ $('selection-cancel').addEventListener('click',()=>addDialog.close());
+ addDialog.addEventListener('close',()=>{if($('selection-strand').value==='+')return;$('selection-strand').value='+';analyze();});
+ $('selection-add').addEventListener('click',()=>{const s=P.selection;if(!s?.seq)return;const n=normalizeSequence(orient());if(n.error){$('selection-dialog-error').textContent=n.error;return;}
+  const name=$('selection-name').value.trim();if(!name){$('selection-dialog-error').textContent='이름을 입력하세요.';$('selection-name').focus();return;}
   const strand=$('selection-strand').value==='-'?-1:1,form=strand>0?n.sequence:reverseComplement(n.sequence),hit=findSites(host.reference().subarray(s.start,s.end),n.sequence,{maxMismatch:n.sequence.length}).find(h=>h.strand===strand);
-  add([{name,set:$('selection-set').value.trim(),sequence:n.sequence,visible:true,manual:true,hits:[],placed:'found',site:{start:s.start,end:s.end,strand,mismatches:hit?.mismatches??0,source:s.source==='consensus'?'consensus':'reference'},form}]);$('selection-state').textContent=`${name}을 등록했습니다.`;$('selection-name').value='';});
+  add([{name,set:$('selection-set').value.trim(),sequence:n.sequence,visible:true,manual:true,hits:[],placed:'found',site:{start:s.start,end:s.end,strand,mismatches:hit?.mismatches??0,source:s.source==='consensus'?'consensus':'reference'},form}]);addDialog.close();$('selection-state').textContent=`${name}을 등록했습니다.`;$('selection-name').value='';});
  // Tm conditions
  for(const [k,v] of Object.entries(P.conditions)){const i=$('tm-'+k);i.value=v;i.addEventListener('input',()=>{P.conditions[k]=i.value;analyze();renderList();});}
  function exportText(kind){const ref=host.referenceInfo();if(kind==='genbank')return ['reference_annotated.gb','text/plain',referenceGenbank({reference:ref,primers:P.list})];if(kind==='gff')return ['primer_annotations.gff3','text/plain',primerGff3({referenceId:host.referenceId(),referenceLength:ref.sequence.length,primers:P.list,circular:host.circular()})];return ['primer_sets.csv','text/csv',primerCsv(P.list,exportOptions())];}
- function snapshot(){const b=P.binding;return {state:{list:P.list.map(({hits,...p})=>({...p,hits:(hits??[]).slice(0,20)})),nextId:P.nextId,options:P.options,conditions:P.conditions,binding:b?{result:b.result,n:b.n,end3:b.end3,rule:b.rule,stale:P.stale}:null},cats:b?.cats??null,order:b?P.order:null};}
- function restore(saved,cats,order){P.list=saved.list;P.nextId=saved.nextId;P.options={...P.options,...saved.options};P.conditions={...P.conditions,...saved.conditions};
+ function snapshot(){const b=P.binding;return {state:{list:P.list.map(({hits,...p})=>({...p,hits:(hits??[]).slice(0,20)})),nextId:P.nextId,options:P.options,conditions:P.conditions,includeReference:P.includeReference,binding:b?{result:b.result,n:b.n,end3:b.end3,rule:b.rule,reference:!!b.reference,stale:P.stale}:null},cats:b?.cats??null,order:b?P.order:null};}
+ function restore(saved,cats,order){P.includeReference=!!saved.includeReference;P.list=saved.list;P.nextId=saved.nextId;P.options={...P.options,...saved.options};P.conditions={...P.conditions,...saved.conditions};
   for(const [id,k] of [['opt-mismatch','maxMismatch'],['opt-end3-exact','end3Exact'],['opt-end3','end3'],['opt-rule-end3','ruleEnd3'],['opt-rule-mismatch','ruleMismatch']])$(id).value=P.options[k];for(const [k,v] of Object.entries(P.conditions))$('tm-'+k).value=v;
   $('primer-count').textContent=P.list.length?`(${P.list.length})`:'';P.binding=saved.binding&&cats?{...saved.binding,cats}:null;P.order=order;P.stale=saved.binding?.stale??true;P.restored=true;}
  // Sites found under the old shape no longer hold, so chosen positions are searched again.
  function onTopology(){P.list=P.list.map(p=>p.manual&&p.site.end<=host.reference().length?p:{...p,locked:false,manual:false});changed({rerun:false});}
- return {handle,onRange,exportText,snapshot,restore,onTopology,onData(){if(P.restored){P.restored=false;refreshViewer();renderList();renderBinding();$('binding-state').textContent=P.binding?(P.stale?'조건이 바뀌었습니다. 재분석이 필요합니다.':'저장된 결과입니다.'):'';return;}P.binding=null;P.list=P.list.map(place);refreshViewer();renderList();},onConsensus(){if(P.list.some(p=>!p.manual&&p.site?.source!=='reference'))changed({rerun:false});},onFilter(){if(P.list.length){markStale();maybeAuto();}},onPrimerClick:focus,state:P,search,renderBinding};
+ return {handle,onRange,exportText,snapshot,restore,onTopology,onData(){if(P.restored){P.restored=false;refreshViewer();renderList();renderBinding();$('binding-state').textContent=P.binding?(P.stale?'조건이 바뀌었습니다. 재분석이 필요합니다.':'저장된 결과입니다.'):'';return;}P.includeReference=host.referenceInList();P.binding=null;P.list=P.list.map(place);refreshViewer();renderList();},onConsensus(){if(P.list.some(p=>!p.manual&&p.site?.source!=='reference'))changed({rerun:false});},onFilter(){if(P.list.length){markStale();maybeAuto();}},onPrimerClick:focus,state:P,search,renderBinding};
 }

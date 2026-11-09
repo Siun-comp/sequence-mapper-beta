@@ -4,7 +4,7 @@ import {projectRow,GAP,coversBase} from '../core/alignment.mjs';
 import {displayName} from '../core/parse.mjs';
 export const ZOOMS=Object.freeze([14,10,7,5,4,3.5,2,1,.5,.35]);
 // Letters fit down to 4 px per base. Below that each base is still its own coloured cell, until bases share pixels.
-const GLYPH_MIN=4,PAINT_MIN=3;
+const GLYPH_MIN=4,PAINT_MIN=3,WHEEL_STEP=40;
 const DEFAULT_NAME_W=260,MIN_NAME_W=120,MAX_NAME_W=640,ROW=16,LANE=18,MAX_LANES=8,H={overview:20,ruler:24,consensus:16,coverage:36,identity:14,reference:16};
 const BASE_TOP=H.overview+H.ruler+H.consensus+H.coverage+H.identity+H.reference;
 const COLOR={A:'#c2453f',C:'#2f6fb3',G:'#b8831f',T:'#2f8f5b',other:'#7a6aa8',gap:'#59697b'};
@@ -12,10 +12,10 @@ const TINT={A:'#efc9c6',C:'#c6d9ec',G:'#ecdcb9',T:'#c3e3d1'};
 const baseColor=c=>COLOR[String.fromCharCode(c)]??COLOR.other,baseTint=c=>TINT[String.fromCharCode(c)]??'#d8d2e6';
 const FONT='"Cascadia Mono",Consolas,"Liberation Mono","Courier New",monospace',UI='"Segoe UI","Malgun Gothic",sans-serif';
 export class Viewer{
- constructor(host,{onHover,onSelect,onRange,onPrimer}={}){
-  Object.assign(this,{onHover,onSelect,onRange,onPrimer,host});this.scroller=host.querySelector('.viewer-scroll');this.spacer=host.querySelector('.viewer-spacer');this.canvas=host.querySelector('canvas');this.ctx=this.canvas.getContext('2d',{alpha:false});
+ constructor(host,{onHover,onSelect,onRange,onPrimer,onZoom}={}){
+  Object.assign(this,{onHover,onSelect,onRange,onPrimer,onZoom,host});this.wheelSum=0;this.scroller=host.querySelector('.viewer-scroll');this.spacer=host.querySelector('.viewer-spacer');this.canvas=host.querySelector('canvas');this.ctx=this.canvas.getContext('2d',{alpha:false});
   this.nameW=DEFAULT_NAME_W;this.cell=ZOOMS[0];this.mode='all';this.nameMode='both';this.compare='reference';this.selected=-1;this.mark=-1;this.data=null;this.queued=false;this.lastFrameMs=0;this.primers=[];this.lanes=0;this.top=BASE_TOP;this.range=null;this.drag=null;this.pointer=null;this.activePrimer=null;this.found=null;this.consLabel='Consensus';
-  this.scroller.addEventListener('scroll',()=>this.request(),{passive:true});
+  this.scroller.addEventListener('scroll',()=>this.request(),{passive:true});this.scroller.addEventListener('wheel',e=>this.wheel(e),{passive:false});
   new ResizeObserver(()=>this.resize()).observe(this.scroller);
   this.canvas.addEventListener('mousemove',e=>this.move(e));this.canvas.addEventListener('mouseleave',()=>this.onHover?.(null));this.canvas.addEventListener('mousedown',e=>this.down(e));addEventListener('mouseup',e=>this.up(e));addEventListener('mousemove',e=>{if(this.drag&&!this.drag.resize){this.pointer=e;this.follow();}});
   this.scroller.addEventListener('keydown',e=>this.key(e));this.resize();
@@ -29,6 +29,8 @@ export class Viewer{
  setFound(f){this.found=f;this.request();}
  setFoundIndex(i){if(this.found)this.found.index=i;this.request();}
  setZoom(index){const col=this.centerColumn();this.cell=ZOOMS[index];this.layoutPrimers();this.updateSize();this.scrollToColumn(col,true);this.request();}
+ // Ctrl+wheel and trackpad pinch. A mouse notch is one step; a pinch sends small deltas, so they add up first.
+ wheel(e){if(!e.ctrlKey||!this.data)return;e.preventDefault();const dy=e.deltaMode===1?e.deltaY*40:e.deltaMode===2?e.deltaY*400:e.deltaY;if(dy*this.wheelSum<0)this.wheelSum=0;this.wheelSum+=dy;if(Math.abs(this.wheelSum)<WHEEL_STEP)return;const from=ZOOMS.indexOf(this.cell),to=Math.max(0,Math.min(ZOOMS.length-1,from+Math.sign(this.wheelSum)));this.wheelSum=0;if(to===from)return;const px=e.clientX-this.scroller.getBoundingClientRect().left,at=px>this.nameW?px-this.nameW:(this.width-this.nameW)/2,col=(this.scroller.scrollLeft+at)/this.cell;this.cell=ZOOMS[to];this.layoutPrimers();this.updateSize();this.scroller.scrollLeft=Math.max(0,col*this.cell-at);this.request();this.onZoom?.(to);}
  setMode(m){this.mode=m;this.request();}
  setNameMode(m){this.nameMode=m;this.request();}
  setCompare(c){this.compare=c;this.request();}
@@ -123,6 +125,7 @@ export class Viewer{
   const label=(t,hh)=>{x.fillStyle='#59697b';x.fillText(t,6,y+hh/2+.5);};
   const ow=this.width-this.nameW-2;label('전체 위치',H.overview);const L=cov.length;x.fillStyle='#e7ecf1';x.fillRect(this.nameW+1,5,ow,10);x.fillStyle='#9fb2c4';
   for(let p=0;p<ow;p+=2){const r=Math.min(L-1,Math.floor(p/ow*L));const f=cov[r]/maxCov;x.fillRect(this.nameW+1+p,15-10*f,2,10*f);}
+  for(const p of this.shown??[]){x.fillStyle=p.mismatches?'#8a9a3a':'#3f9a63';x.fillRect(this.nameW+1+p.c0/total*ow,1,Math.max(2,(p.c1-p.c0)/total*ow),18);}
   x.strokeStyle='#344e6b';x.lineWidth=1;x.strokeRect(this.nameW+1+c0/total*ow+.5,3.5,Math.max(3,(c1-c0)/total*ow),13);y+=H.overview;
   x.save();x.beginPath();x.rect(this.nameW,0,this.width-this.nameW,TOP);x.clip();
   const unit=[1,2,5,10,20,50,100,200,500,1000,2000,5000,10000].find(u=>u*cell>=70)||20000;x.fillStyle='#23364d';x.font=`11px ${UI}`;

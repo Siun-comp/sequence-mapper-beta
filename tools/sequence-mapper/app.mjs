@@ -17,13 +17,18 @@ import {gatherChunk,subsetData,MAX_LIST_BASES} from './core/list.mjs';
 export const TOOL_VERSION='0.1.0-dev.1';
 const $=id=>document.getElementById(id),dec=new TextDecoder();
 const state={files:{reference:null,queries:[],aligned:null},loaded:null,S:null,R:null,order:null,workers:[],busy:false,analysis:null,statsId:0,cols:null,stats:null,navIndex:-1,selectedRecord:-1};
-const viewer=new Viewer($('viewer'),{onHover:hover,onSelect:selectRow,onRange:r=>primers.onRange(r),onPrimer:id=>primers.onPrimerClick(id)});
+const viewer=new Viewer($('viewer'),{onZoom:i=>{$('zoom').value=i;},onHover:hover,onSelect:selectRow,onRange:r=>primers.onRange(r),onPrimer:id=>primers.onPrimerClick(id)});
 const sequenceView=new SequenceView($('sequence-view'),{onHover:t=>{$('hover-line').textContent=t??'';},onRange:r=>primers.onRange(r),onPrimer:id=>primers.onPrimerClick(id)});
 const activeView=()=>state.single?sequenceView:viewer,circular=()=>!!state.single&&state.loaded?.reference?.topology==='circular';
-const primers=setupPrimers({get viewer(){return activeView();},circular,reference:()=>state.ref,consensus:()=>state.single?null:state.stats?.consensus??null,cols:()=>state.cols,ready:()=>!!state.stats,baseOrder:()=>state.baseOrder,analysis:()=>state.analysis,showTab,referenceInfo:()=>state.loaded.reference,referenceId:()=>state.refName,saveText,hoverText:t=>{$('hover-line').textContent=t;},forceRecords(list,label){state.forced=new Set(list);$('forced-text').textContent=`${label} ${list.length.toLocaleString()}건만 표시`;$('forced-chip').hidden=false;applyFilter(true);},project:(row,buf,c0,c1)=>projectRow(state.S,state.order[row],state.cols,buf,c0,c1),rowName:row=>accessionOf(state.names[state.order[row]])});
+const primers=setupPrimers({get viewer(){return activeView();},circular,reference:()=>state.ref,consensus:()=>state.single?null:state.stats?.consensus??null,cols:()=>state.cols,ready:()=>!!state.stats,baseOrder:()=>state.baseOrder,analysis:()=>state.analysis,showTab,referenceInfo:()=>state.loaded.reference,referenceId:()=>state.refName,referenceInList:()=>!!state.refFromList,saveText,hoverText:t=>{$('hover-line').textContent=t;},forceRecords(list,label){state.forced=new Set(list);$('forced-text').textContent=`${label} ${list.length.toLocaleString()}건만 표시`;$('forced-chip').hidden=false;applyFilter(true);},project:(row,buf,c0,c1)=>projectRow(state.S,state.order[row],state.cols,buf,c0,c1),rowName:row=>accessionOf(state.names[state.order[row]])});
 const find=setupFind({get viewer(){return activeView();},circular,single:()=>!!state.single,annotations:()=>state.annotations??[],analysis:()=>state.analysis,ready:()=>!!state.stats&&!$('result').hidden,cols:()=>state.cols,order:()=>state.order,reference:()=>state.ref,consensus:()=>state.stats.consensus,primers:()=>primers.state.list,nameOf:i=>state.names[i],rowName:row=>state.names[state.order[row]],showTab,forceRecords(list,label){state.forced=new Set(list);$('forced-text').textContent=`${label} ${list.length.toLocaleString()}건만 표시`;$('forced-chip').hidden=false;applyFilter(true);}});
 const list=setupList({changed:updateJudge,view:openSingle});
-function showTab(name){for(const n of ['viewer','primers','binding']){$('pane-'+n).hidden=n!==name;$('tab-'+n).setAttribute('aria-selected',n===name);}}
+function showTab(name){for(const n of ['viewer','primers','binding']){$('pane-'+n).hidden=n!==name;$('tab-'+n).setAttribute('aria-selected',n===name);}fitHeights();}
+// The viewer ends inside the window so its horizontal scrollbar is on the first screen.
+const MIN_VIEW_H=420,MAX_VIEW_H=1000,BELOW_VIEW=34;
+function fitHeights(){const r=$('result');if(r.hidden)return;const top=e=>e.getBoundingClientRect().top+scrollY,s=[...r.querySelectorAll('.viewer-scroll')].find(e=>e.offsetParent),set=(k,v)=>{if(r.style.getPropertyValue(k)!==v)r.style.setProperty(k,v);};if(s)set('--viewer-h',Math.min(MAX_VIEW_H,Math.max(MIN_VIEW_H,Math.floor(innerHeight-top(s)-BELOW_VIEW)))+'px');set('--side-h',Math.max(MIN_VIEW_H,Math.floor(innerHeight-top(r.querySelector('.side'))-8))+'px');}
+new ResizeObserver(fitHeights).observe(document.body);addEventListener('resize',fitHeights);
+$('info-toggle').addEventListener('click',e=>{const open=$('info-panel').hidden;$('info-panel').hidden=!open;e.currentTarget.setAttribute('aria-expanded',open);});
 for(const n of ['viewer','primers','binding'])$('tab-'+n).addEventListener('click',()=>showTab(n));
 $('forced-clear').addEventListener('click',()=>{state.forced=null;$('forced-chip').hidden=true;applyFilter(true);});
 
@@ -91,7 +96,7 @@ $('example').addEventListener('click',async()=>{const f=exampleFiles();$('name-r
 $('load-aligned').addEventListener('click',async()=>{
  try{const r=await load({mode:'aligned',file:state.files.aligned,referenceName:$('aligned-reference').value});
   const j=judgeAligned({rows:r.rows,columns:r.columns});if(j.level==='blocked')throw Error(j.messages[0]);
-  state.loaded=r;$('input-report').hidden=true;const parameters=`Aligned FASTA 읽기 (${r.columns.toLocaleString()}열, 매핑 안 함)`;await showResult(r,{meta:r.data.meta,cig:r.data.cig,extra:r.data.extra},parameters,0);
+  state.refFromList=false;state.loaded=r;$('input-report').hidden=true;const parameters=`Aligned FASTA 읽기 (${r.columns.toLocaleString()}열, 매핑 안 함)`;await showResult(r,{meta:r.data.meta,cig:r.data.cig,extra:r.data.extra},parameters,0);
  }catch(e){setError(e.message);}
 });
 $('reset').addEventListener('click',()=>{if(state.S&&!confirm('현재 결과를 지웁니다. 계속할까요?'))return;location.reload();});
@@ -119,7 +124,7 @@ async function openSingle(i){
 }
 async function runMapping(){
  const r=state.list;let reference;try{reference=await chosenReference(r);}catch(e){$('input-report').hidden=false;setError(e.message);return;}
- const ids=list.selected(),n=ids.length,excluded=list.excluded(),count=Math.max(1,Math.min(4,(navigator.hardwareConcurrency||4)-1)),CHUNK_BASES=4e6;
+ state.refFromList=list.fromList();const ids=list.selected(),n=ids.length,excluded=list.excluded(),count=Math.max(1,Math.min(4,(navigator.hardwareConcurrency||4)-1)),CHUNK_BASES=4e6;
  setError();setBusy(true);$('input-report').hidden=true;progress(true,0,'매핑 준비 중…');const t0=performance.now();let cancelled=false;
  const parts=[];let next=0,done=0;
  const finish=async()=>{stopWorkers();setBusy(false);progress(false);$('input-panel').open=false;const m=mergeChunks(n,parts),data=n===r.data.names.length?r.data:subsetData(r.data,ids),mapped={...r,reference,data,excluded};list.close();state.list=null;await showResult(mapped,m,PARAMETERS,(performance.now()-t0)/1000);};
