@@ -18,12 +18,14 @@ export function normalizeSequence(raw){
 export const mixedBases=s=>[...s].filter(c=>!'ACGT'.includes(c)).length;
 
 // Text input: FASTA, or a table separated by tab or comma.
+// Comma tables may quote a cell that holds a comma.
+function splitQuoted(line,sep){const out=[];let cur='',quoted=false;for(let i=0;i<line.length;i++){const c=line[i];if(quoted){if(c==='"'){if(line[i+1]==='"'){cur+='"';i++;}else quoted=false;}else cur+=c;}else if(c==='"'&&!cur.trim())quoted=true,cur='';else if(c===sep){out.push(cur);cur='';}else cur+=c;}out.push(cur);return out.map(x=>x.trim());}
 export function parseText(text){
  const clean=text.replace(/^﻿/,'').trim();if(!clean)return {rows:[]};
  const lines=clean.split(/\r?\n/);
  if(lines[0].startsWith('>')){const rows=[['Name','Sequence']];for(const l of lines){if(l.startsWith('>'))rows.push([l.slice(1).trim(),'']);else if(rows.length>1)rows.at(-1)[1]+=l.trim();}return {rows};}
  const sep=lines[0].includes('\t')?'\t':lines[0].includes(',')?',':/\s+/;
- return {rows:lines.map(l=>l.split(sep).map(c=>c.trim().replace(/^"(.*)"$/,'$1')))};
+ return {rows:lines.map(l=>typeof sep==='string'?splitQuoted(l,sep):l.split(sep).map(c=>c.trim().replace(/^"(.*)"$/,'$1')))};
 }
 const NAME=/^(primer[_ ]?name|name|oligo|oligo[_ ]?name|primer|id|이름|프라이머|올리고)$/i,SEQ=/^(sequence(_5to3)?|seq|5.?-?3.?|서열|염기서열)$/i,SET=/^(set(_id)?|group|세트|그룹)$/i;
 // Finds columns from a header row; a first row that already holds a sequence means there is no header.
@@ -50,15 +52,16 @@ export function buildPrimers(rows,map,{defaultSet='',existing=[]}={}){
 
 // Scans both strands. Minus-strand hits compare the reverse complement, so 3' lies at the left end of the site.
 // A circular target is searched past its end, so a site across the origin has end > target length.
+// A target base the primer only partly covers (N against A) is unresolved: it uses up the allowance like a mismatch and never counts as a match.
 export function findSites(target,sequence,{maxMismatch=0,end3Exact=0,circular=false}={}){
  const hits=[],L=sequence.length,forms=[[1,sequence],[-1,reverseComplement(sequence)]];
  if(circular&&L>1&&target.length>=L){const t=new Uint8Array(target.length+L-1);t.set(target);t.set(target.subarray(0,L-1),target.length);target=t;}
  for(const [strand,form] of forms){const m=Uint8Array.from(form,c=>MASK[c.charCodeAt(0)]);
-  scan:for(let s=0;s+L<=target.length;s++){const miss=[];
-   for(let k=0;k<L;k++){const t=MASK[target[s+k]];if(!t)continue scan;if(!(t&m[k])){miss.push(k);if(miss.length>maxMismatch)continue scan;}}
-   if(end3Exact&&miss.some(k=>strand>0?k>=L-end3Exact:k<end3Exact))continue;
-   hits.push({start:s,end:s+L,strand,mismatches:miss.length,positions:miss});}}
- return hits.sort((a,b)=>a.mismatches-b.mismatches||a.start-b.start||b.strand-a.strand);
+  scan:for(let s=0;s+L<=target.length;s++){const miss=[],unsure=[];
+   for(let k=0;k<L;k++){const t=MASK[target[s+k]];if(!t)continue scan;if(!(t&m[k]))miss.push(k);else if(t&~m[k])unsure.push(k);else continue;if(miss.length+unsure.length>maxMismatch)continue scan;}
+   const atEnd=k=>strand>0?k>=L-end3Exact:k<end3Exact;if(end3Exact&&(miss.some(atEnd)||unsure.some(atEnd)))continue;
+   hits.push({start:s,end:s+L,strand,mismatches:miss.length,unresolved:unsure.length,positions:miss});}}
+ return hits.sort((a,b)=>a.mismatches+a.unresolved-b.mismatches-b.unresolved||a.unresolved-b.unresolved||a.start-b.start||b.strand-a.strand);
 }
 // Reference first; the consensus only when the reference has no site. Coordinates stay on the reference.
 export function placePrimer(p,reference,consensus,options){

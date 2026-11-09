@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-import {judge,judgeAligned,formatBases,formatBytes,formatDuration,repeatShare,REPEAT_WARNING_SHARE,LIMITS,BLOCKED_ADVICE} from './core/limits.mjs';
+import {judge,judgeAligned,formatBases,formatBytes,formatDuration,repeatShare,REPEAT_WARNING_SHARE,LIMITS,BLOCKED_ADVICE,repeatKey} from './core/limits.mjs';
 import {mergeChunks} from './core/map-chunk.mjs';
 import {STRIDE,REF,REV,QS,QE,HITS,COFF,CN,samCigar,clips,toDisplay,fromDisplay,reverseComplementBytes,projectRow,recordLength,coversBase} from './core/alignment.mjs';
-import {RS,RS_MATCH,RS_MISMATCH,RS_AMBIG,RS_INS,RS_DEL,RS_REFEND,statusOf,STATUS_LABEL,summarize,identityFromStats,queryCoverage,referenceCoverage,POSITION_DEFINITIONS} from './core/stats.mjs';
+import {RS,RS_MATCH,RS_MISMATCH,RS_AMBIG,RS_INS,RS_DEL,RS_REFEND,statusOf,STATUS_LABEL,summarize,identityFromStats,queryCoverage,referenceCoverage,POSITION_DEFINITIONS,differsFrom} from './core/stats.mjs';
 import {accessionOf,displayName,FLAG} from './core/parse.mjs';
 import {exampleFiles} from './core/example.mjs';
 import {alignedFastaBytes} from './core/export.mjs';
@@ -20,7 +20,7 @@ const state={files:{reference:null,queries:[],aligned:null},loaded:null,S:null,R
 const viewer=new Viewer($('viewer'),{onZoom:i=>{$('zoom').value=i;},onHover:hover,onSelect:selectRow,onRange:r=>primers.onRange(r),onPrimer:id=>primers.onPrimerClick(id)});
 const sequenceView=new SequenceView($('sequence-view'),{onHover:t=>{$('hover-line').textContent=t??'';},onRange:r=>primers.onRange(r),onPrimer:id=>primers.onPrimerClick(id)});
 const activeView=()=>state.single?sequenceView:viewer,circular=()=>!!state.single&&state.loaded?.reference?.topology==='circular';
-const primers=setupPrimers({get viewer(){return activeView();},circular,reference:()=>state.ref,consensus:()=>state.single?null:state.stats?.consensus??null,cols:()=>state.cols,ready:()=>!!state.stats,baseOrder:()=>state.baseOrder,analysis:()=>state.analysis,showTab,referenceInfo:()=>state.loaded.reference,referenceId:()=>state.refName,referenceInList:()=>!!state.refFromList,saveText,hoverText:t=>{$('hover-line').textContent=t;},forceRecords(list,label){state.forced=new Set(list);$('forced-text').textContent=`${label} ${list.length.toLocaleString()}건만 표시`;$('forced-chip').hidden=false;applyFilter(true);},project:(row,buf,c0,c1)=>projectRow(state.S,state.order[row],state.cols,buf,c0,c1),rowName:row=>accessionOf(state.names[state.order[row]])});
+const primers=setupPrimers({get viewer(){return activeView();},circular,reference:()=>state.ref,consensus:()=>state.single?null:state.stats?.consensus??null,cols:()=>state.cols,ready:()=>!!state.stats,baseOrder:()=>state.baseOrder,analysis:()=>state.analysis,showTab,referenceInfo:()=>state.loaded.reference,referenceId:()=>state.refName,referenceInList:()=>!!state.refFromList,scopeText:bindingScope,saveText,hoverText:t=>{$('hover-line').textContent=t;},forceRecords(list,label){state.forced=new Set(list);$('forced-text').textContent=`${label} ${list.length.toLocaleString()}건만 표시`;$('forced-chip').hidden=false;applyFilter(true);},project:(row,buf,c0,c1)=>projectRow(state.S,state.order[row],state.cols,buf,c0,c1),rowName:row=>accessionOf(state.names[state.order[row]])});
 const find=setupFind({get viewer(){return activeView();},circular,single:()=>!!state.single,annotations:()=>state.annotations??[],analysis:()=>state.analysis,ready:()=>!!state.stats&&!$('result').hidden,cols:()=>state.cols,order:()=>state.order,reference:()=>state.ref,consensus:()=>state.stats.consensus,primers:()=>primers.state.list,nameOf:i=>state.names[i],rowName:row=>state.names[state.order[row]],showTab,forceRecords(list,label){state.forced=new Set(list);$('forced-text').textContent=`${label} ${list.length.toLocaleString()}건만 표시`;$('forced-chip').hidden=false;applyFilter(true);}});
 const list=setupList({changed:updateJudge,view:openSingle});
 function showTab(name){for(const n of ['viewer','primers','binding']){$('pane-'+n).hidden=n!==name;$('tab-'+n).setAttribute('aria-selected',n===name);}fitHeights();}
@@ -34,7 +34,7 @@ $('forced-clear').addEventListener('click',()=>{state.forced=null;$('forced-chip
 
 $('tool-version').textContent='v'+TOOL_VERSION;
 $('support-range').textContent=`권장: 총 ${formatBases(LIMITS.recommendedBases)} 이하 · 주의: ${formatBases(LIMITS.maxBases)}까지 · 초과: 실행 불가 · Reference ${LIMITS.maxReferenceLength.toLocaleString()} nt까지. 이 범위는 목록에서 고른 서열 기준이며, 파일은 ${formatBases(MAX_LIST_BASES)}까지 읽어 목록에서 줄일 수 있습니다. 총 염기 수 = 서열 수 × 길이입니다. 권장 범위 끝에서 메모리 약 2.3 GB, 주의 범위 끝에서 약 4.3 GB를 썼습니다. Ryzen 5 5600·16 GB·합성 자료 측정이며 실제 자료와 PC에 따라 달라집니다. 반복 구간이 많은 reference는 훨씬 오래 걸릴 수 있습니다.`;
-for(const [k,v] of Object.entries({Coverage:POSITION_DEFINITIONS.coverage,'Identity 막대':POSITION_DEFINITIONS.identity,Consensus:POSITION_DEFINITIONS.consensus,'서열별 identity':'match ÷ (match+mismatch+insertion+deletion). 혼합염기는 분모에서 뺍니다.','일부만 정렬':'서열 길이의 95% 미만만 정렬된 경우입니다.'})){const t=document.createElement('dt');t.textContent=k;const d=document.createElement('dd');d.textContent=v;$('definitions').append(t,d);}
+for(const [k,v] of Object.entries({Coverage:POSITION_DEFINITIONS.coverage,'보존도 막대':POSITION_DEFINITIONS.identity,'변이 위치':POSITION_DEFINITIONS.variant,'정렬 방식':POSITION_DEFINITIONS.alignment,Consensus:POSITION_DEFINITIONS.consensus,'서열별 identity':'match ÷ (match+mismatch+insertion+deletion). 혼합염기는 분모에서 뺍니다.','일부만 정렬':'서열 길이의 95% 미만만 정렬된 경우입니다.'})){const t=document.createElement('dt');t.textContent=k;const d=document.createElement('dd');d.textContent=v;$('definitions').append(t,d);}
 
 function setError(m=''){$('error').textContent=m;}
 function setBusy(on){state.busy=on;for(const id of ['load','example','load-aligned','run','file-reference','file-queries','file-aligned'])$(id).disabled=on;if(!on)refreshButtons();}
@@ -80,7 +80,7 @@ function updateJudge(){
  const j=judge({totalBases:total,referenceLength:ref.length});box.className='judge '+j.level;
  const p=document.createElement('p');p.textContent=j.level==='ok'?`권장 범위 안입니다. 예상 시간 약 ${formatDuration(j.estimate.fastest)}~${formatDuration(j.estimate.typical)}.`:j.level==='caution'?`주의 범위입니다. 예상 시간 약 ${formatDuration(j.estimate.typical)}, 길면 ${formatDuration(j.estimate.slowest)}.`:'지원 범위를 넘어 실행할 수 없습니다.';box.append(p);
  for(const m of j.messages){const x=document.createElement('p');x.textContent=m;box.append(x);}
- if(state.repeatFor!==ref.length+':'+ref[0]+ref[ref.length>>1]){state.repeatFor=ref.length+':'+ref[0]+ref[ref.length>>1];state.repeat=repeatShare(ref);}
+ {const key=repeatKey(ref);if(state.repeatFor!==key){state.repeatFor=key;state.repeat=repeatShare(ref);}}
  const rep=state.repeat;if(rep>=REPEAT_WARNING_SHARE){const x=document.createElement('p');x.textContent=`Reference의 ${Math.round(rep*100)}%가 반복 구간입니다. 매핑이 예상보다 수십 배 이상 오래 걸릴 수 있습니다. 진행 중 남은 시간을 확인하고 필요하면 취소하세요.`;box.append(x);if(j.level==='ok')box.className='judge caution';}
  if(j.level==='blocked'){const u=document.createElement('ul');for(const a of BLOCKED_ADVICE){const x=document.createElement('li');x.textContent=a;u.append(x);}box.append(u);}
  run.disabled=j.level==='blocked'||!mappable;run.textContent=j.level==='caution'?'주의를 확인하고 매핑 실행':'매핑 실행';
@@ -94,7 +94,7 @@ async function readFiles(files){
 $('load').addEventListener('click',()=>readFiles(state.files));
 $('example').addEventListener('click',async()=>{const f=exampleFiles();$('name-reference').textContent=f.reference.name;$('name-queries').textContent=f.queries[0].name;if(await readFiles(f))runMapping();});
 $('load-aligned').addEventListener('click',async()=>{
- try{const r=await load({mode:'aligned',file:state.files.aligned,referenceName:$('aligned-reference').value});
+ try{const size=state.files.aligned.size;if(size>LIMITS.maxAlignedCells*1.2)throw Error(`정렬 파일이 ${formatBytes(size)}입니다. 지원 상한(${formatBases(LIMITS.maxAlignedCells)} 칸)을 넘어 읽지 않았습니다.`);const r=await load({mode:'aligned',file:state.files.aligned,referenceName:$('aligned-reference').value});
   const j=judgeAligned({rows:r.rows,columns:r.columns});if(j.level==='blocked')throw Error(j.messages[0]);
   state.refFromList=false;state.loaded=r;$('input-report').hidden=true;const parameters=`Aligned FASTA 읽기 (${r.columns.toLocaleString()}열, 매핑 안 함)`;await showResult(r,{meta:r.data.meta,cig:r.data.cig,extra:r.data.extra},parameters,0);
  }catch(e){setError(e.message);}
@@ -144,7 +144,7 @@ $('run').addEventListener('click',runMapping);
 
 // Results
 async function showResult(r,m,parameters,seconds){
- state.parameters=parameters;state.fileNames=r.files;state.single=!!r.single;state.loaded=r;$('result').classList.toggle('is-single',state.single);for(const e of document.querySelectorAll('.single-only'))e.hidden=!state.single;$('back-to-list').hidden=!state.list;const S={pool:r.data.pool,offs:r.data.offs,flags:r.data.flags,fileIdx:r.data.fileIdx,meta:m.meta,cig:m.cig,extra:m.extra};
+ state.parameters=parameters;state.fileNames=r.files;state.single=!!r.single;state.loaded=r;$('result').classList.toggle('is-single',state.single);for(const e of document.querySelectorAll('.single-only'))e.hidden=!state.single;$('back-to-list').hidden=!state.list;const S={pool:r.data.pool,offs:r.data.offs,flags:r.data.flags,fileIdx:r.data.fileIdx,inputOrder:r.data.inputOrder,meta:m.meta,cig:m.cig,extra:m.extra};
  state.S=S;state.names=r.data.names;state.ref=r.reference.sequence;state.refName=accessionOf(r.reference.name);
  state.primersReady=false;state.baseOrder=null;state.forced=null;$('forced-chip').hidden=true;state.selectedRecord=-1;viewer.clearRange();sequenceView.clearRange();$('selection').hidden=true;
  const parsed=parseFeatures(r.reference.features,state.ref.length);state.annotations=parsed.list;find.setSingle(state.single);$('tab-viewer').textContent=state.single?'서열 화면':'정렬 화면';if(state.single)openSequenceView(r,parsed);
@@ -188,7 +188,7 @@ const consensusLabel=()=>{const p=consensusPercent();return p?`Consensus ${p}%`:
 function consensusChanged(){$('consensus-custom').hidden=$('consensus-percent').value!=='custom';if(!state.analysis||!state.stats)return;state.consensusId=(state.consensusId||0)+1;state.analysis.postMessage({type:'consensus',id:state.consensusId,percent:consensusPercent()});}
 $('consensus-percent').addEventListener('change',consensusChanged);$('consensus-custom').addEventListener('change',consensusChanged);
 function applyFilter(now=false){clearTimeout(filterTimer);filterTimer=setTimeout(()=>{
- find.hold();const base=currentOrder(),same=state.baseOrder&&sameOrder(state.baseOrder,base);state.baseOrder=base;const order=state.forced?base.filter(i=>state.forced.has(i)):base;state.order=order;state.baseChanged=!same;state.statsId++;viewer.setSelected(-1);$('detail').hidden=true;$('filter-line').textContent=`표시 ${order.length.toLocaleString()} / 전체 ${state.names.length.toLocaleString()} · Consensus 계산 중…`;
+ find.hold();const base=currentOrder(),same=state.baseOrder&&sameOrder(state.baseOrder,base);state.baseOrder=base;const order=state.forced?base.filter(i=>state.forced.has(i)):base;state.order=order;state.baseChanged=!same;state.statsId++;state.selectedRecord=-1;viewer.setSelected(-1);$('detail').hidden=true;$('filter-line').textContent=`표시 ${order.length.toLocaleString()} / 전체 ${state.names.length.toLocaleString()} · Consensus 계산 중…`;
  viewer.clearRange();$('selection').hidden=true;state.analysis.postMessage({type:'stats',id:state.statsId,order,percent:consensusPercent()});
 },now?0:200);}
 function analysisMessage({data:d}){
@@ -197,7 +197,7 @@ function analysisMessage({data:d}){
  if(d.type==='stats-done'){if(d.id!==state.statsId)return;progress(false);state.stats=d.stats;state.cols=d.cols;let max=0;for(const v of d.stats.coverage)if(v>max)max=v;
   viewer.consLabel=consensusLabel();viewer.setData({S:state.S,names:state.names,order:state.order,cols:d.cols,stats:d.stats,ref:state.ref,refName:state.refName,refFull:state.loaded.reference.name,maxCoverage:max});
   if(!state.primersReady){state.primersReady=true;primers.onData();}else if(state.baseChanged){primers.onConsensus();primers.onFilter();}
-  let ins=0;for(const v of d.stats.insRows)if(v)ins++;let variable=0;for(const v of d.stats.identity)if(v<1)variable++;state.variable=null;state.navIndex=-1;$('nav-state').textContent='';updateNavScope();
+  let ins=0;for(const v of d.stats.insRows)if(v)ins++;let variable=0;for(let r=0;r<state.ref.length;r++)if(differsFrom(d.stats.counts,r,state.ref[r]))variable++;state.variable=null;state.navIndex=-1;$('nav-state').textContent='';updateNavScope();
   if(state.restoreScroll){const v=state.restoreScroll;state.restoreScroll=null;requestAnimationFrame(()=>{viewer.scroller.scrollLeft=v.left;viewer.scroller.scrollTop=v.top;});}
   $('filter-line').textContent=state.single?'':`표시 ${state.order.length.toLocaleString()} / 전체 ${state.names.length.toLocaleString()} · 변이 위치 ${variable.toLocaleString()} · insertion 위치 ${ins.toLocaleString()}`;find.onView();return;}
  if(d.type==='export-block'){Promise.resolve().then(()=>state.exportSink?.write(d.bytes)).then(()=>state.analysis.postMessage({type:'ack'}),e=>{state.analysis.postMessage({type:'ack',stop:true});state.exportSink?.abort();state.exportSink=null;$('export-state').textContent='';setError('저장 실패: '+(e.name==='QuotaExceededError'?'저장 공간이 부족합니다.':e.message));$('project-state').textContent='';$('save-project').disabled=false;});if(!d.project)$('export-state').textContent=`저장 중 ${formatBytes(d.sent)}…`;return;}
@@ -216,12 +216,14 @@ $('diff-only').addEventListener('change',e=>viewer.setMode(e.target.checked?'dif
 function goTo(){const p=Number($('goto').value);if(!Number.isInteger(p)||p<1||p>state.ref.length){$('nav-state').textContent=`1–${state.ref.length.toLocaleString()} 사이로 입력하세요.`;return;}const c=state.cols.colOf[fromDisplay(p)];viewer.setMark(c);viewer.scrollToColumn(c);}
 $('goto-button').addEventListener('click',goTo);$('goto').addEventListener('keydown',e=>{if(e.key==='Enter')goTo();});
 
-// Variant navigation: the selected row if any, otherwise every variable position.
+// Where the binding table's records came from. The parts add up to the total input.
+function bindingScope(order,withReference){const {S,names}=state,n=names.length,inSet=new Uint8Array(n);for(const i of order)inSet[i]=1;let skipped=0,unmapped=0,filtered=0;for(let i=0;i<n;i++){if(inSet[i])continue;const s=statusOf(S,i);if(s==='skipped')skipped++;else if(s==='unmapped')unmapped++;else filtered++;}const listed=state.loaded.excluded||0,ref=withReference?1:0,f=x=>x.toLocaleString();return `전체 입력 ${f(n+listed+ref)} · 목록 제외 ${f(listed)} · 입력 오류 ${f(skipped)} · 정렬 안 됨 ${f(unmapped)} · 보기 범위 제외 ${f(filtered)} · 분석 대상 ${f(order.length+ref)}${ref?' (Reference 포함)':''}`;}
+// Variant navigation: the selected row if any, otherwise every position that differs from the compared sequence.
 function updateNavScope(){$('nav-scope').textContent=state.selectedRecord>=0?'(선택한 서열)':'(전체 위치)';}
 function variantColumns(){
  if(state.variable)return state.variable;const out=[],{colOf,refOfCol,total}=state.cols;
  if(state.selectedRecord>=0){const b=new Uint8Array(total),loose=$('compare').value==='consensus',cmp=loose?state.stats.consensus:state.ref;projectRow(state.S,state.selectedRecord,state.cols,b,0,total);for(let c=0;c<total;c++){const v=b[c];if(!v)continue;const r=refOfCol[c];if(r<0?v!==45:v!==cmp[r]&&!(loose&&coversBase(cmp[r],v)))out.push(c);}}
- else{const id=state.stats.identity;for(let r=0;r<state.ref.length;r++)if(id[r]<1)out.push(colOf[r]);}
+ else{const L=state.ref.length,{counts,insRows}=state.stats,{insMax}=state.cols,cmp=$('compare').value==='consensus'?state.stats.consensus:state.ref;for(let r=0;r<=L;r++){if(insRows[r])out.push(colOf[r]-insMax[r]);if(r<L&&differsFrom(counts,r,cmp[r]))out.push(colOf[r]);}}
  return state.variable=out;
 }
 function step(dir){const v=variantColumns();if(!v.length){$('nav-state').textContent='변이가 없습니다.';return;}state.navIndex=(state.navIndex+dir+v.length)%v.length;if(state.navIndex<0)state.navIndex=0;const c=v[state.navIndex],r=state.cols.refOfCol[c];viewer.setMark(c);viewer.scrollToColumn(c);$('nav-state').textContent=`${(state.navIndex+1).toLocaleString()} / ${v.length.toLocaleString()} · ${r<0?'insertion 열':'위치 '+toDisplay(r).toLocaleString()}`;}
@@ -231,8 +233,8 @@ $('next-diff').addEventListener('click',()=>step(1));$('prev-diff').addEventList
 function hover(p){
  const line=$('hover-line');if(!p||p.col<0||!state.stats){line.textContent='';return;}
  const r=state.cols.refOfCol[p.col];let t=r<0?'insertion 열':`위치 ${toDisplay(r).toLocaleString()} · ref ${String.fromCharCode(state.ref[r])}`;
- if(r>=0){const s=state.stats;t+=` · consensus ${s.consensus[r]?String.fromCharCode(s.consensus[r]):'없음'} · coverage ${s.coverage[r].toLocaleString()} · A/C/G/T 판독 ${s.called[r].toLocaleString()} · identity ${Number.isNaN(s.identity[r])?'–':(s.identity[r]*100).toFixed(1)+'%'}`;}
- else{let q=p.col;while(q<state.cols.total&&state.cols.refOfCol[q]<0)q++;const at=state.cols.refOfCol[q];if(at>=0)t+=` · 위치 ${toDisplay(at).toLocaleString()} 앞 · 해당 서열 ${state.stats.insRows[at].toLocaleString()}개`;}
+ if(r>=0){const s=state.stats;t+=` · consensus ${s.consensus[r]?String.fromCharCode(s.consensus[r]):'없음'} · coverage ${s.coverage[r].toLocaleString()} · A/C/G/T 판독 ${s.called[r].toLocaleString()} · 보존도 ${Number.isNaN(s.identity[r])?'–':(s.identity[r]*100).toFixed(1)+'%'}`;}
+ else{let q=p.col;while(q<state.cols.total&&state.cols.refOfCol[q]<0)q++;const at=state.cols.refOfCol[q];if(at>=0)t+=` · 위치 ${toDisplay(at).toLocaleString()} 앞 · 해당 서열 ${state.stats.insRows[at].toLocaleString()}개`;else t+=` · Reference 끝 뒤 · 해당 서열 ${state.stats.insRows[state.ref.length].toLocaleString()}개`;}
  if(p.row>=0){const i=state.order[p.row],b=new Uint8Array(1);projectRow(state.S,i,state.cols,b,p.col,p.col+1);t+=` · ${accessionOf(state.names[i])}: ${b[0]?String.fromCharCode(b[0]):'정렬 밖'}`;}
  line.textContent=t;
 }

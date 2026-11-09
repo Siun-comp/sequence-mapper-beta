@@ -137,7 +137,7 @@ export class Viewer{
   this.seqTrack(x,this.refRow,y,H.reference,c0,c1,off,this.consRow);
   x.restore();
   y=H.overview;x.font=`12px ${UI}`;x.textBaseline='middle';x.textAlign='left';x.fillStyle='#f8fafc';x.fillRect(0,y,this.nameW,TOP-y);
-  for(const [t,hh] of [['좌표 (reference)',H.ruler],...(this.lanes?[['Primer',this.lanes*LANE]]:[]),[this.consLabel,H.consensus],[`Coverage (최대 ${maxCov.toLocaleString()})`,H.coverage],['Identity',H.identity]]){label(t,hh);y+=hh;}
+  for(const [t,hh] of [['좌표 (reference)',H.ruler],...(this.lanes?[['Primer',this.lanes*LANE]]:[]),[this.consLabel,H.consensus],[`Coverage (최대 ${maxCov.toLocaleString()})`,H.coverage],['보존도',H.identity]]){label(t,hh);y+=hh;}
   x.fillStyle='#fdf8e6';x.fillRect(0,y,this.nameW,H.reference);x.fillStyle='#23364d';x.fillText(this.fit(x,'Reference: '+displayName(d.refFull??d.refName,this.nameMode),this.nameW-10),6,y+H.reference/2+.5);
  }
  seqTrack(x,seq,y,hh,c0,c1,off,other){const cell=this.cell;

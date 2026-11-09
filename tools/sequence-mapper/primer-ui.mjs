@@ -6,6 +6,7 @@ import {readFirstSheet} from './core/xlsx-read.mjs';
 import {DEFAULT_CONDITIONS,tmSummary,gcRange} from './core/selection.mjs';
 import {toDisplay} from './core/alignment.mjs';
 import {referenceGenbank,primerGff3,primerCsv,primerRows,bindingCsv,endOf,PRIMER_COLUMNS} from './core/annotation-export.mjs';
+import {excelSafe} from './core/export.mjs';
 const $=id=>document.getElementById(id),dec=new TextDecoder();
 // Above this much work the table waits for the button; measured about 1 second on the stage-1 PC.
 const AUTO_BINDING_WORK=2e6,SELECTION_DELAY_MS=180,MAX_COPY_CELLS=30e6;
@@ -24,16 +25,16 @@ export function setupPrimers(host){
  const metricCache=new Map();
  function metrics(p){const key=p.sequence+'|'+JSON.stringify(P.conditions);let m=metricCache.get(key);if(!m){const t=tmSummary(p.sequence,P.conditions),g=gcRange(p.sequence);m={tm:t.status==='ok'?(t.variants>1?`${t.min.toFixed(1)}–${t.max.toFixed(1)}`:t.mean.toFixed(1)):'N/A',gc:g.min===g.max?g.min.toFixed(1):`${g.min.toFixed(1)}–${g.max.toFixed(1)}`};if(metricCache.size>2000)metricCache.clear();metricCache.set(key,m);}return m;}
  function changed({rerun=true}={}){P.list=P.list.map(place);refreshViewer();renderList();markStale();if(rerun)maybeAuto();}
- function refreshViewer(){host.viewer.setPrimers(P.list.filter(p=>p.site).map(p=>({id:p.id,name:p.name,start:p.site.start,end:p.site.end,strand:p.site.strand,mismatches:p.site.mismatches,visible:p.visible})));}
+ function refreshViewer(){host.viewer.setPrimers(P.list.filter(p=>p.site).map(p=>({id:p.id,name:p.name,start:p.site.start,end:p.site.end,strand:p.site.strand,mismatches:p.site.mismatches+(p.site.unresolved??0),visible:p.visible})));}
  function add(primers){for(const p of primers)P.list.push({...p,id:P.nextId++});changed();$('primer-count').textContent=P.list.length?`(${P.list.length})`:'';}
- function statusText(p){if(!p.site)return '위치 없음';const parts=[];if(p.manual)parts.push('직접 지정');if(p.site.source==='consensus')parts.push('Consensus에서 찾음');if(p.site.end>host.reference().length)parts.push('원점 걸침');parts.push(p.site.mismatches?`mismatch ${p.site.mismatches}`:'일치');if(p.hits?.length>1)parts.push(`위치 ${p.hits.length}곳`);return parts.join(' · ');}
+ function statusText(p){if(!p.site)return '위치 없음';const parts=[];if(p.manual)parts.push('직접 지정');if(p.site.source==='consensus')parts.push('Consensus에서 찾음');if(p.site.end>host.reference().length)parts.push('원점 걸침');const unsure=p.site.unresolved??0;if(p.site.mismatches)parts.push(`mismatch ${p.site.mismatches}`);if(unsure)parts.push(`판정 불가 염기 ${unsure}개`);if(!p.site.mismatches&&!unsure)parts.push('일치');if(p.hits?.length>1){const tied=new Set(p.hits.filter(h=>h.mismatches===p.site.mismatches&&(h.unresolved??0)===unsure).map(h=>h.start)).size;parts.push(tied>1?`위치 ${p.hits.length}곳 (같은 점수 ${tied}곳)`:`위치 ${p.hits.length}곳`);}return parts.join(' · ');}
  function renderList(){
   const body=$('primer-rows');body.replaceChildren();$('primer-empty').hidden=P.list.length>0;
   for(const p of P.list){const tr=el('tr',{class:p.id===host.viewer.activePrimer?'is-active':''});
    const show=el('input',{type:'checkbox',checked:p.visible,ariaLabel:p.name+' 표시',onchange(){p.visible=show.checked;refreshViewer();}});
    const where=p.site?siteText(p.site):'–',m=metrics(p);
    const cell=el('td',{class:'num'},where);
-   if(p.hits?.length>1){const sel=el('select',{ariaLabel:p.name+' 위치 선택',onchange(){const q=chooseHit(p,+sel.value);Object.assign(p,{site:q.site,locked:true});refreshViewer();markStale();maybeAuto();}});p.hits.slice(0,20).forEach((h,i)=>sel.append(el('option',{value:i,selected:h.start===p.site.start&&h.strand===p.site.strand,textContent:`${toDisplay(h.start).toLocaleString()} (${h.strand>0?'+':'−'}, mm ${h.mismatches})`})));cell.replaceChildren(sel);}
+   if(p.hits?.length>1){const sel=el('select',{ariaLabel:p.name+' 위치 선택',onchange(){const q=chooseHit(p,+sel.value);Object.assign(p,{site:q.site,locked:true});refreshViewer();markStale();maybeAuto();}});p.hits.slice(0,20).forEach((h,i)=>sel.append(el('option',{value:i,selected:h.start===p.site.start&&h.strand===p.site.strand,textContent:`${toDisplay(h.start).toLocaleString()} (${h.strand>0?'+':'−'}, mm ${h.mismatches}${h.unresolved?`, 판정 불가 ${h.unresolved}`:''})`})));cell.replaceChildren(sel);}
    tr.append(el('td',{},show),el('td',{},p.set||'–'),el('td',{},el('button',{type:'button',class:'link',textContent:p.name,disabled:!p.site,onclick(){focus(p.id);}})),el('td',{class:'mono'},p.sequence),el('td',{class:'num'},String(p.sequence.length)),el('td',{class:'num'},String(mixedBases(p.sequence))),el('td',{class:'num'},m.tm),el('td',{class:'num'},m.gc),cell,el('td',{},p.site?(p.site.strand>0?'+':'−'):'–'),el('td',{class:p.site?'':'bad'},statusText(p)),el('td',{},el('button',{type:'button',textContent:'삭제',ariaLabel:p.name+' 삭제',onclick(){P.list=P.list.filter(x=>x!==p);changed();$('primer-count').textContent=P.list.length?`(${P.list.length})`:'';}})));
    body.append(tr);}
  }
@@ -83,7 +84,7 @@ export function setupPrimers(host){
  const value=(t,c)=>c==='end3'?t.end3:c==='rule'?t.rule:t.counts[c];
  const ruleText=r=>`3′ 끝 ${r.end3} nt 완전일치, 전체 mismatch ${r.maxMismatch}개 이하`,refNote=b=>b.reference?'대상 서열에는 목록에서 지정한 Reference 1건이 포함됩니다. ':'';
  function renderBinding(){
-  const b=P.binding,body=$('binding-rows');body.replaceChildren();$('binding-empty').hidden=!!b;$('binding-copy').disabled=!b;$('binding-csv').disabled=!b;if(!b)return;$('binding-end3').textContent=`${refNote(b)}3′ mismatch는 3′ 끝 ${b.end3} nt 안의 mismatch 건수이고, 조건 충족은 ${ruleText(b.rule)}인 서열 수입니다. 완전일치를 포함하며 indel·판정 불가·구간 미포함은 제외합니다. 두 칸은 다른 칸과 겹칩니다.`;
+  const b=P.binding,body=$('binding-rows');body.replaceChildren();$('binding-empty').hidden=!!b;$('binding-copy').disabled=!b;$('binding-csv').disabled=!b;$('binding-scope').textContent=b?host.scopeText(P.order,b.reference):'';if(!b)return;$('binding-end3').textContent=`${refNote(b)}3′ mismatch는 3′ 끝 ${b.end3} nt 안의 mismatch 건수이고, 조건 충족은 ${ruleText(b.rule)}인 서열 수입니다. 완전일치를 포함하며 indel·판정 불가·구간 미포함은 제외합니다. 두 칸은 다른 칸과 겹칩니다.`;
   b.result.forEach((t,index)=>{const tr=el('tr',{},el('td',{},t.set||'–'),el('td',{},el('button',{type:'button',class:'link',textContent:t.name,onclick(){focus(t.id);}})),el('td',{class:'num'},t.total.toLocaleString()));
    for(const [c,label] of COLS){const n=value(t,c);tr.append(el('td',{class:'num'},n?el('button',{type:'button',class:'link cell',title:label+' 서열만 보기',ariaLabel:`${t.name} ${label} ${n}건 보기`,onclick(){show(index,c,label);},textContent:n.toLocaleString()}):'0',el('small',{},' '+pct(n,t.total))));}
    tr.append(el('td',{},el('button',{type:'button',textContent:`변이형 ${t.variantCount.toLocaleString()}`,onclick(){variants(t);}})));body.append(tr);});
@@ -91,12 +92,12 @@ export function setupPrimers(host){
  function show(index,c,label){const b=P.binding,t=b.result[index],list=recordsInCell(b.cats,b.n,index,P.order,c);host.forceRecords(list,`${t.name} · ${label}`);focus(t.id);}
  function variants(t){$('variant-title').textContent=`${t.name} 구간 변이형 (5′→3′, primer 방향)`;$('variant-note').textContent=`서로 다른 형태 ${t.variantCount.toLocaleString()}개`+(t.variantCount>t.variants.length?` 중 많은 순서 ${t.variants.length}개`:'')+'. 건수는 레코드 수입니다.';$('variant-rows').replaceChildren(...t.variants.map(v=>el('tr',{},el('td',{class:'mono'},v.sequence),el('td',{class:'num'},v.count.toLocaleString()),el('td',{class:'num'},pct(v.count,t.total)),el('td',{class:'num'},String(v.differences)))));$('variant-dialog').showModal();}
  $('variant-close').addEventListener('click',()=>$('variant-dialog').close());
- $('binding-csv').addEventListener('click',()=>host.saveText('binding_summary.csv','text/csv',bindingCsv(P.binding,COLS,value,`${refNote(P.binding)}조건 충족: ${ruleText(P.binding.rule)}. ${BINDING_NOTE}`)));
+ $('binding-csv').addEventListener('click',()=>host.saveText('binding_summary.csv','text/csv',bindingCsv(P.binding,COLS,value,`${host.scopeText(P.order,P.binding.reference)}. ${refNote(P.binding)}조건 충족: ${ruleText(P.binding.rule)}. ${BINDING_NOTE}`)));
  function tableText(){const b=P.binding,head=['Set','Primer','대상 서열',...COLS.map(c=>c[1])],rows=b.result.map(t=>[t.set,t.name,t.total,...COLS.map(([c])=>value(t,c))]);return {head,rows};}
  // Excel keeps the columns from the HTML form; the plain text is the fallback.
- async function copyTable(head,rows,note,status){const text=[head,...rows].map(r=>r.join('\t')).join('\n')+(note?`\n${note}`:'');const cell=(t,v)=>{const x=document.createElement(t);x.textContent=v;x.style.cssText="font:9pt 'Malgun Gothic'";return x.outerHTML;};const html=`<table>${[head.map(h=>cell('th',h)).join(''),...rows.map(r=>r.map(v=>cell('td',v)).join(''))].map(r=>`<tr>${r}</tr>`).join('')}</table>`;
+ async function copyTable(head,rawRows,note,status){const rows=rawRows.map(r=>r.map(excelSafe)),text=[head,...rows].map(r=>r.join('\t')).join('\n')+(note?`\n${note}`:'');const cell=(t,v)=>{const x=document.createElement(t);x.textContent=v;x.style.cssText="font:9pt 'Malgun Gothic'";return x.outerHTML;};const html=`<table>${[head.map(h=>cell('th',h)).join(''),...rows.map(r=>r.map(v=>cell('td',v)).join(''))].map(r=>`<tr>${r}</tr>`).join('')}</table>`;
   try{await navigator.clipboard.write([new ClipboardItem({'text/plain':new Blob([text],{type:'text/plain'}),'text/html':new Blob([html],{type:'text/html'})})]);status.textContent='표를 복사했습니다.';}catch{try{await navigator.clipboard.writeText(text);status.textContent='표를 일반 텍스트로 복사했습니다.';}catch{status.textContent='복사에 실패했습니다.';}}}
- $('binding-copy').addEventListener('click',()=>{const {head,rows}=tableText();copyTable(head,rows,`${refNote(P.binding)}조건 충족: ${ruleText(P.binding.rule)}\n${BINDING_NOTE}`,$('binding-state'));});
+ $('binding-copy').addEventListener('click',()=>{const {head,rows}=tableText();copyTable(head,rows,`${host.scopeText(P.order,P.binding.reference)}\n${refNote(P.binding)}조건 충족: ${ruleText(P.binding.rule)}\n${BINDING_NOTE}`,$('binding-state'));});
  const exportOptions=()=>({length:host.reference().length,metrics});
  $('primer-copy').addEventListener('click',()=>copyTable(PRIMER_COLUMNS,primerRows(P.list,exportOptions()),'',$('primer-state')));
 
@@ -112,7 +113,7 @@ export function setupPrimers(host){
  function copyText(reverse=false){const r=P.range,n=laneCount(r),w=r.c1-r.c0;if(n*w>MAX_COPY_CELLS)return {error:`선택이 ${n.toLocaleString()}줄로 너무 큽니다. 내보내기의 Aligned FASTA를 쓰세요.`};const buf=new Uint8Array(w);
   if(n===1){const t=laneText(firstLane(r),r,buf);return {text:reverse?reverseGapped(t):t};}
   const out=[];for(let k=0;k<n;k++){const lane=r.from+k;out.push(`${laneText(lane,r,buf)}\n`);}return {text:out.join('')};}
- function onRange(r){P.range=r;const c=host.cols(),n=laneCount(r),buf=new Uint8Array(r.c1-r.c0);let a=r.c0,b=r.c1-1;while(a<r.c1&&c.refOfCol[a]<0)a++;while(b>=r.c0&&c.refOfCol[b]<0)b--;
+ function onRange(r){P.range=r;P.selectionId++;const c=host.cols(),n=laneCount(r),buf=new Uint8Array(r.c1-r.c0);let a=r.c0,b=r.c1-1;while(a<r.c1&&c.refOfCol[a]<0)a++;while(b>=r.c0&&c.refOfCol[b]<0)b--;
   const start=a<r.c1?c.refOfCol[a]:-1,end=b>=r.c0?c.refOfCol[b]+1:-1,where=start>=0?toDisplay(start).toLocaleString()+'–'+end.toLocaleString():'insertion 열';
   $('selection').hidden=false;$('selection').classList.toggle('is-multi',n>1);$('selection-state').textContent='';clearTimeout(timer);
   if(n>1){P.selection=null;$('selection-where').textContent=`${n.toLocaleString()}줄 · ${where}`;$('selection-seq').textContent='';$('selection-length').textContent=`${buf.length.toLocaleString()} 열`;return;}
@@ -124,7 +125,7 @@ export function setupPrimers(host){
   timer=setTimeout(analyze,SELECTION_DELAY_MS);}
  function orient(){return $('selection-strand').value==='-'?reverseComplementSafe(P.selection.seq):P.selection.seq;}
  const reverseComplementSafe=s=>reverseComplement(s);
- function analyze(){const s=P.selection;if(!s?.seq)return;if(!/^[ACGTRYSWKMBDHVN]+$/.test(s.seq))return;worker.postMessage({id:++P.selectionId,sequence:orient(),conditions:P.conditions});}
+ function analyze(){const s=P.selection;if(!s?.seq||!/^[ACGTRYSWKMBDHVN]+$/.test(s.seq)){for(const id of ['selection-gc','selection-tm','selection-self'])$(id).textContent='–';return;}worker.postMessage({id:++P.selectionId,sequence:orient(),conditions:P.conditions});}
  worker.onmessage=({data:d})=>{if(d.id!==P.selectionId)return;if(d.error){$('selection-tm').textContent='오류: '+d.error;return;}const r=d.result,g=r.gc;
   $('selection-gc').textContent=g.min===g.max?`${g.min.toFixed(1)}%`:`${g.min.toFixed(1)}–${g.max.toFixed(1)}%`;
   const t=r.tm;$('selection-tm').textContent=t.status==='ok'?(t.variants>1?`${t.min.toFixed(1)}–${t.max.toFixed(1)} °C · 평균 ${t.mean.toFixed(1)} · 변이 ${t.variants}종`:`${t.mean.toFixed(1)} °C`):`N/A (${t.reason})`;$('selection-tm').title=t.model??'';
@@ -146,7 +147,7 @@ export function setupPrimers(host){
  $('selection-add').addEventListener('click',()=>{const s=P.selection;if(!s?.seq)return;const n=normalizeSequence(orient());if(n.error){$('selection-dialog-error').textContent=n.error;return;}
   const name=$('selection-name').value.trim();if(!name){$('selection-dialog-error').textContent='이름을 입력하세요.';$('selection-name').focus();return;}
   const strand=$('selection-strand').value==='-'?-1:1,form=strand>0?n.sequence:reverseComplement(n.sequence),hit=findSites(host.reference().subarray(s.start,s.end),n.sequence,{maxMismatch:n.sequence.length}).find(h=>h.strand===strand);
-  add([{name,set:$('selection-set').value.trim(),sequence:n.sequence,visible:true,manual:true,hits:[],placed:'found',site:{start:s.start,end:s.end,strand,mismatches:hit?.mismatches??0,source:s.source==='consensus'?'consensus':'reference'},form}]);addDialog.close();$('selection-state').textContent=`${name}을 등록했습니다.`;$('selection-name').value='';});
+  add([{name,set:$('selection-set').value.trim(),sequence:n.sequence,visible:true,manual:true,hits:[],placed:'found',site:{start:s.start,end:s.end,strand,mismatches:hit?.mismatches??0,unresolved:hit?.unresolved??0,source:s.source==='consensus'?'consensus':'reference'},form}]);addDialog.close();$('selection-state').textContent=`${name}을 등록했습니다.`;$('selection-name').value='';});
  // Tm conditions
  for(const [k,v] of Object.entries(P.conditions)){const i=$('tm-'+k);i.value=v;i.addEventListener('input',()=>{P.conditions[k]=i.value;analyze();renderList();});}
  function exportText(kind){const ref=host.referenceInfo();if(kind==='genbank')return ['reference_annotated.gb','text/plain',referenceGenbank({reference:ref,primers:P.list})];if(kind==='gff')return ['primer_annotations.gff3','text/plain',primerGff3({referenceId:host.referenceId(),referenceLength:ref.sequence.length,primers:P.list,circular:host.circular()})];return ['primer_sets.csv','text/csv',primerCsv(P.list,exportOptions())];}

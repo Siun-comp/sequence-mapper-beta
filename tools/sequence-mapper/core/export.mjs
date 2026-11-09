@@ -6,7 +6,8 @@ import {accessionOf,FLAG} from './parse.mjs';
 const dec=new TextDecoder(),BLOCK=1<<23;
 function* chunked(lines){let buf=[],size=0;for(const l of lines){buf.push(l);size+=l.length;if(size>=BLOCK){yield buf.join('');buf=[];size=0;}}if(size)yield buf.join('');}
 // A leading =,+,-,@ would run as a formula when the file is opened in Excel.
-export function csvCell(v){let s=v===null||v===undefined?'':String(v);if(/^[=+\-@\t\r]./s.test(s))s="'"+s;return /[",\n\r]/.test(s)?`"${s.replace(/"/g,'""')}"`:s;}
+export const excelSafe=v=>{const s=v===null||v===undefined?'':String(v);return /^[=+\-@\t\r]./s.test(s)?"'"+s:s;};
+export function csvCell(v){const s=excelSafe(v);return /[",\n\r]/.test(s)?`"${s.replace(/"/g,'""')}"`:s;}
 const pct=x=>x===null?'':(x*100).toFixed(3);
 export const SUMMARY_COLUMNS=['source_file','input_order','uid','query_id','description','query_length','status','orientation','target','ref_start_1based','ref_end_1based','query_start_1based','query_end_1based','match','mismatch','ambiguous','insertion','deletion','identity_pct','reference_coverage_pct','query_coverage_pct','hits','cigar','note'];
 export function uniqueIds(names){const seen=new Map();return names.map(n=>{const id=accessionOf(n).replace(/[^!-?A-~]/g,'_')||'unnamed',c=seen.get(id)||0;seen.set(id,c+1);return c?`${id}_dup${c}`:id;});}
@@ -14,7 +15,7 @@ function* summaryLines(ctx,order){
  const {S,R,names,files,refId,refLength}=ctx;yield '﻿'+SUMMARY_COLUMNS.join(',')+'\r\n';
  for(const i of order){const b=i*STRIDE,st=statusOf(S,i),mapped=S.meta[b+REF]>=0,len=recordLength(S,i),[l,rt]=mapped?clips(len,!!S.meta[b+REV],S.meta[b+QS],S.meta[b+QE]):[0,0],r=i*RS;
   const note=[];const f=S.flags[i];if(f&FLAG.INVALID)note.push('지원하지 않는 문자');if(f&FLAG.EMPTY)note.push('빈 서열');if(f&FLAG.RNA)note.push('U를 T로 변환');
-  yield [files[S.fileIdx[i]]??'',i+1,i,accessionOf(names[i]),names[i].slice(accessionOf(names[i]).length).trim(),len,STATUS_LABEL[st],mapped?(S.meta[b+REV]?'-':'+'):'',mapped?refId:'',
+  yield [files[S.fileIdx[i]]??'',S.inputOrder?.[i]??i+1,i,accessionOf(names[i]),names[i].slice(accessionOf(names[i]).length).trim(),len,STATUS_LABEL[st],mapped?(S.meta[b+REV]?'-':'+'):'',mapped?refId:'',
    mapped?toDisplay(S.meta[b+REF]):'',mapped?R[r+RS_REFEND]:'',mapped?S.meta[b+QS]+1:'',mapped?S.meta[b+QE]:'',
    R[r+RS_MATCH],R[r+RS_MISMATCH],R[r+RS_AMBIG],R[r+RS_INS],R[r+RS_DEL],pct(identityFromStats(R,i)),mapped?pct(referenceCoverage(S,R,i,refLength)):'',mapped?pct(queryCoverage(S,i)):'',
    S.meta[b+HITS],mapped?samCigar(S.cig,S.meta[b+COFF],S.meta[b+CN],l,rt,true):'',note.join('; ')].map(csvCell).join(',')+'\r\n';}

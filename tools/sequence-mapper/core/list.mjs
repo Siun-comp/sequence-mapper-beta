@@ -61,5 +61,5 @@ export function subsetData(data,ids){
  const n=ids.length;let bases=0;for(const i of ids)bases+=data.offs[i+1]-data.offs[i];
  const pool=new Uint8Array(bases),offs=new Uint32Array(n+1),flags=new Uint8Array(n),fileIdx=new Uint16Array(n),names=new Array(n);let p=0;
  for(let k=0;k<n;k++){const i=ids[k],a=data.offs[i],b=data.offs[i+1];pool.set(data.pool.subarray(a,b),p);p+=b-a;offs[k+1]=p;flags[k]=data.flags[i];fileIdx[k]=data.fileIdx[i];names[k]=data.names[i];}
- return {...data,pool,offs,flags,fileIdx,names};
+ return {...data,pool,offs,flags,fileIdx,names,inputOrder:Uint32Array.from(ids,i=>i+1)};
 }

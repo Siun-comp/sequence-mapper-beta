@@ -16,7 +16,7 @@ self.onmessage=async({data:d})=>{
  if(d.type==='find-cancel'){findRun++;return;}
  try{
   if(d.type==='init'){const R=computeRecordStats(d.S,d.ref);ctx={...d,R};self.postMessage({type:'init-done',R});return;}
-  if(d.type==='stats'){const stats=computeStats(ctx.S,d.order,ctx.ref.length,d.percent);ctx.stats=stats;ctx.cols=buildColumns(stats.insMax);
+  if(d.type==='stats'){const stats=computeStats(ctx.S,d.order,ctx.ref.length,d.percent);ctx.stats=stats;ctx.cols=buildColumns(stats.insMax,ctx.ref.length);
    self.postMessage({type:'stats-done',id:d.id,stats,cols:ctx.cols});return;}
   if(d.type==='consensus'){ctx.stats.consensus=buildConsensus(ctx.stats.counts,ctx.stats.coverage,d.percent);self.postMessage({type:'consensus-done',id:d.id,consensus:ctx.stats.consensus});return;}
   if(d.type==='binding'){const run=++bindingRun,gen=computeBinding(ctx.S,d.order,d.primers,ctx.ref.length,{...d.options,reference:d.options.includeReference?ctx.ref:null});
@@ -26,7 +26,7 @@ self.onmessage=async({data:d})=>{
   if(d.type==='find'){const run=++findRun,gen=findInRows(ctx.S,d.order,ctx.cols,buildForms(d.sequence,d.options),d.options);
    for(;;){const x=gen.next();if(x.done){const hits=Int32Array.from(x.value.hits);self.postMessage({type:'find-done',id:d.id,hits,outside:x.value.outside,capped:x.value.capped},[hits.buffer]);return;}
     const hits=Int32Array.from(x.value.hits);self.postMessage({type:'find-progress',id:d.id,done:x.value.done,total:d.order.length,hits},[hits.buffer]);await new Promise(r=>setTimeout(r));if(run!==findRun)return;}}
-  if(d.type==='project-save'){const {S,ref,names}=ctx,sections={ref,pool:S.pool,offs:S.offs,flags:S.flags,fileIdx:S.fileIdx,meta:S.meta,cig:S.cig,extra:S.extra,names:encodeNames(names),...d.extra};
+  if(d.type==='project-save'){const {S,ref,names}=ctx,sections={ref,pool:S.pool,offs:S.offs,flags:S.flags,fileIdx:S.fileIdx,meta:S.meta,cig:S.cig,extra:S.extra,names:encodeNames(names),...(S.inputOrder?{inputOrder:S.inputOrder}:{}),...d.extra};
    // Compression runs on the calling thread, so saving stays here and the page keeps responding.
    const sink={write:async b=>{const bytes=b.slice();self.postMessage({type:'export-block',id:d.id,bytes,project:true},[bytes.buffer]);if(await stored())throw Error('저장을 중단했습니다.');}};
    const size=await writeProject(d.info,sections,sink,(done,total)=>self.postMessage({type:'project-progress',done,total}));self.postMessage({type:'project-done',size});return;}

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Project file: gzip of [magic][manifest length][manifest JSON][binary sections]. Written and read as streams.
-import {STRIDE,REF,QS,QE,COFF,CN} from './alignment.mjs';
+import {STRIDE,REF,QS,QE,COFF,CN,OP} from './alignment.mjs';
 export const MAGIC='JSUMAP1\n',FORMAT='jsu-sequence-mapper',SCHEMA=1,MAX_SECTION_BYTES=4e9;
 const TYPES={u8:Uint8Array,u16:Uint16Array,u32:Uint32Array,i32:Int32Array},SLICE=1<<23,enc=new TextEncoder(),dec=new TextDecoder();
 const kindOf=a=>Object.entries(TYPES).find(([,T])=>a instanceof T)?.[0];
@@ -44,7 +44,11 @@ export async function readProject(stream,onProgress=()=>{}){
 export function checkDataset(S,refLength,nameCount){
  const n=S.offs.length-1;if(n!==nameCount)throw Error('서열 수와 이름 수가 맞지 않습니다.');if(S.meta.length!==n*STRIDE)throw Error('정렬 기록 수가 맞지 않습니다.');if(S.offs[n]!==S.pool.length)throw Error('서열 길이 기록이 맞지 않습니다.');
  for(let i=0;i<n;i++){if(S.offs[i+1]<S.offs[i])throw Error('서열 위치 기록이 맞지 않습니다.');const b=i*STRIDE,r=S.meta[b+REF];if(r<0)continue;
-  if(r>=refLength||S.meta[b+COFF]<0||S.meta[b+CN]<0||S.meta[b+COFF]+S.meta[b+CN]>S.cig.length||S.meta[b+QS]<0||S.meta[b+QE]>S.offs[i+1]-S.offs[i])throw Error(`${i+1}번째 서열의 정렬 기록이 맞지 않습니다.`);}
+  if(r>=refLength||S.meta[b+COFF]<0||S.meta[b+CN]<0||S.meta[b+COFF]+S.meta[b+CN]>S.cig.length||S.meta[b+QS]<0||S.meta[b+QE]>S.offs[i+1]-S.offs[i])throw Error(`${i+1}번째 서열의 정렬 기록이 맞지 않습니다.`);
+  let onRef=0,onQuery=0;for(let c=S.meta[b+COFF],e=c+S.meta[b+CN];c<e;c++){const v=S.cig[c],l=v>>>4,op=v&15;if(op===OP.EQ||op===OP.X||op===OP.M){onRef+=l;onQuery+=l;}else if(op===OP.I)onQuery+=l;else if(op===OP.D)onRef+=l;}
+  if(r+onRef>refLength||onQuery>S.offs[i+1]-S.offs[i])throw Error(`${i+1}번째 서열의 정렬 길이가 맞지 않습니다.`);}
+ const x=S.extra??[];if(x.length%9)throw Error('추가 정렬 기록이 맞지 않습니다.');for(let e=0;e<x.length;e+=9)if(x[e]<0||x[e]>=n||x[e+7]<0||x[e+8]<0||x[e+7]+x[e+8]>S.cig.length)throw Error('추가 정렬 기록이 맞지 않습니다.');
+ if(S.inputOrder&&S.inputOrder.length!==n)throw Error('입력 순서 기록이 맞지 않습니다.');
 }
 export const encodeNames=names=>enc.encode(names.join('\n'));
 export const decodeNames=bytes=>bytes.length?dec.decode(bytes).split('\n'):[];

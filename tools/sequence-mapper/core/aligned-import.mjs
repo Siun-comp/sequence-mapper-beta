@@ -20,10 +20,10 @@ export function alignedToRecords(store,refRow){
  const width=alignedRowLength(store),rows=store.offs.length-1,R=store.pool.subarray(store.offs[refRow],store.offs[refRow]+width);
  const refBytes=[];for(let c=0;c<width;c++)if(R[c]!==GAP)refBytes.push(R[c]);
  if(!refBytes.length)throw Error('기준 행에 염기가 없습니다.');
- const n=rows-1,pool=new Uint8Array(store.pool.length),offs=new Uint32Array(n+1),meta=new Int32Array(n*STRIDE),names=[],flags=new Uint8Array(n),fileIdx=new Uint16Array(n);let cig=new Uint32Array(1<<16),cn=0,w=0,out=0;
+ const n=rows-1,pool=new Uint8Array(store.pool.length),offs=new Uint32Array(n+1),meta=new Int32Array(n*STRIDE),names=[],flags=new Uint8Array(n),fileIdx=new Uint16Array(n),inputOrder=new Uint32Array(n);let cig=new Uint32Array(1<<16),cn=0,w=0,out=0;
  const push=(op,len)=>{if(cn===cig.length){const x=new Uint32Array(cn*2);x.set(cig);cig=x;}cig[cn++]=len*16+op;};
  for(let row=0;row<rows;row++){if(row===refRow)continue;
-  const s=store.offs[row],b=out*STRIDE;names.push(store.names[row]);flags[out]=store.flags[row];fileIdx[out]=store.fileIdx[row];
+  const s=store.offs[row],b=out*STRIDE;names.push(store.names[row]);flags[out]=store.flags[row];fileIdx[out]=store.fileIdx[row];inputOrder[out]=row+1;
   let first=-1,last=-1;for(let c=0;c<width;c++)if(store.pool[s+c]!==GAP){if(first<0)first=c;last=c;}
   meta[b+COFF]=cn;
   if(first<0){meta[b+REF]=UNMAPPED;offs[++out]=w;continue;}
@@ -37,5 +37,5 @@ export function alignedToRecords(store,refRow){
   emit();
   meta[b+REF]=start;meta[b+REV]=0;meta[b+QS]=0;meta[b+QE]=w-q0;meta[b+MAPQ]=255;meta[b+HITS]=1;meta[b+CN]=cn-meta[b+COFF];offs[++out]=w;
  }
- return {reference:{name:store.names[refRow],sequence:Uint8Array.from(refBytes)},data:{pool:pool.slice(0,w),offs,flags,fileIdx,names,meta,cig:cig.slice(0,cn),extra:new Int32Array(0)},columns:width};
+ return {reference:{name:store.names[refRow],sequence:Uint8Array.from(refBytes)},data:{pool:pool.slice(0,w),offs,flags,fileIdx,names,inputOrder,meta,cig:cig.slice(0,cn),extra:new Int32Array(0)},columns:width};
 }

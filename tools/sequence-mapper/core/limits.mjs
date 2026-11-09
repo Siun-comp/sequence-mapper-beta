@@ -25,6 +25,8 @@ export function repeatShare(ref,k=11,copies=4){
  let hit=0;for(const w of words)if(seen.get(w)>=copies)hit++;return hit/words.length;
 }
 export const REPEAT_WARNING_SHARE=.2;
+// FNV-1a over the whole reference, so two references never share a cached repeat share by chance of length and a few bases.
+export function repeatKey(ref){let h=2166136261;for(let i=0;i<ref.length;i++){h^=ref[i];h=Math.imul(h,16777619);}return ref.length+':'+(h>>>0);}
 export function formatBases(n){
  if(n>=1e9)return (n/1e9).toFixed(2)+' Gb';if(n>=1e6)return (n/1e6).toFixed(n>=1e8?0:1)+' Mb';if(n>=1e3)return (n/1e3).toFixed(1)+' kb';return n+' nt';
 }

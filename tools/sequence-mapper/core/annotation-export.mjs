@@ -18,7 +18,7 @@ export function referenceGenbank({reference,primers,date=new Date()}){
  definition.match(/.{1,67}/g)?.forEach((l,i)=>out.push((i?' '.repeat(12):'DEFINITION  ')+l));
  out.push(`ACCESSION   ${id.split('.')[0]}`,`VERSION     ${id}`,'KEYWORDS    .','SOURCE      .','  ORGANISM  .');
  if(reference.features)out.push(reference.features);else out.push('FEATURES             Location/Qualifiers',`     source          1..${len}`);
- for(const p of placed(primers)){out.push(`     primer_bind     ${location(p.site,len)}`,wrapQualifier(`/label="${quoted(p.name)}"`),wrapQualifier(`/note="JSU Sequence Mapper user annotation; set=${quoted(p.set||'-')}; sequence=${p.sequence}; mismatches=${p.site.mismatches}; ${sourceTag(p)}"`));}
+ for(const p of placed(primers)){out.push(`     primer_bind     ${location(p.site,len)}`,wrapQualifier(`/label="${quoted(p.name)}"`),wrapQualifier(`/note="JSU Sequence Mapper user annotation; set=${quoted(p.set||'-')}; sequence=${p.sequence}; mismatches=${p.site.mismatches}; ${p.site.unresolved?`unresolved=${p.site.unresolved}; `:''}${sourceTag(p)}"`));}
  out.push('ORIGIN');
  for(let p=0;p<len;p+=60){const parts=[];for(let k=p;k<Math.min(p+60,len);k+=10)parts.push(seq.slice(k,k+10).toLowerCase());out.push(String(p+1).padStart(9)+' '+parts.join(' '));}
  out.push('//','');return out.join('\n');
@@ -28,12 +28,12 @@ export function primerGff3({referenceId,referenceLength,primers,circular=false})
  const id=gffValue(referenceId),out=['##gff-version 3',`##sequence-region ${id} 1 ${referenceLength}`],missing=primers.filter(p=>!p.site);
  // GFF3 writes a feature across the origin with an end past the landmark length.
  if(circular)out.push([id,'JSU_Sequence_Mapper','region',1,referenceLength,'.','+','.',`ID=${id};Is_circular=true`].join('\t'));
- placed(primers).forEach((p,i)=>out.push([id,'JSU_Sequence_Mapper','primer_binding_site',p.site.start+1,p.site.end,'.',p.site.strand>0?'+':'-','.',`ID=primer${i+1};Name=${gffValue(p.name)};Note=${gffValue(`set=${p.set||'-'} sequence=${p.sequence} mismatches=${p.site.mismatches} ${sourceLabel(p)}`)}`].join('\t')));
+ placed(primers).forEach((p,i)=>out.push([id,'JSU_Sequence_Mapper','primer_binding_site',p.site.start+1,p.site.end,'.',p.site.strand>0?'+':'-','.',`ID=primer${i+1};Name=${gffValue(p.name)};Note=${gffValue(`set=${p.set||'-'} sequence=${p.sequence} mismatches=${p.site.mismatches} ${p.site.unresolved?`unresolved=${p.site.unresolved} `:''}${sourceLabel(p)}`)}`].join('\t')));
  if(missing.length)out.push(`# 위치를 찾지 못해 제외한 primer ${missing.length}개: ${missing.map(p=>p.name.replace(/\s+/g,' ')).join(', ')}`);
  return out.join('\n')+'\n';
 }
-export const PRIMER_COLUMNS=['Set','Name','Sequence','Length','Mixed_bases','Start_1based','End_1based','Strand','Mismatches_vs_target','Status','Visible','Tm_C','GC_percent'];
-export function primerRows(primers,{length=Infinity,metrics=()=>({tm:'',gc:''})}={}){return primers.map(p=>{const m=metrics(p);return [p.set,p.name,p.sequence,p.sequence.length,mixedBases(p.sequence),p.site?p.site.start+1:'',p.site?endOf(p.site,length):'',p.site?(p.site.strand>0?'+':'-'):'',p.site?.mismatches??'',p.site?sourceLabel(p):'위치 없음',p.visible?'Y':'N',m.tm,m.gc];});}
+export const PRIMER_COLUMNS=['Set','Name','Sequence','Length','Mixed_bases','Start_1based','End_1based','Strand','Mismatches_vs_target','Unresolved_vs_target','Status','Visible','Tm_C','GC_percent'];
+export function primerRows(primers,{length=Infinity,metrics=()=>({tm:'',gc:''})}={}){return primers.map(p=>{const m=metrics(p);return [p.set,p.name,p.sequence,p.sequence.length,mixedBases(p.sequence),p.site?p.site.start+1:'',p.site?endOf(p.site,length):'',p.site?(p.site.strand>0?'+':'-'):'',p.site?.mismatches??'',p.site?(p.site.unresolved??0):'',p.site?sourceLabel(p):'위치 없음',p.visible?'Y':'N',m.tm,m.gc];});}
 const CRLF=String.fromCharCode(13,10);
 export function primerCsv(primers,options){
  return '﻿'+[PRIMER_COLUMNS,...primerRows(primers,options)].map(r=>r.map(csvCell).join(',')).join(CRLF)+CRLF;

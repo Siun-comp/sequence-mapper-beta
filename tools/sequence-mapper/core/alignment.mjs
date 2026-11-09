@@ -25,11 +25,11 @@ function baseAt(S,i,q,rev,len,o){return rev?complement(S.pool[o+len-1-q]):S.pool
 // Writes the record on reference coordinates. row[r]=base byte, 0=not covered, 45=deletion. ins[r]=inserted bases before r.
 export function expandRow(S,i,row,ins){
  row.fill(0);ins.fill(0);const b=i*STRIDE;if(S.meta[b+REF]<0)return false;
- const rev=S.meta[b+REV],len=recordLength(S,i),o=S.offs[i],L=row.length;let q=queryStart(S,i),r=S.meta[b+REF];
+ const rev=S.meta[b+REV],len=recordLength(S,i),o=S.offs[i];let q=queryStart(S,i),r=S.meta[b+REF];
  const c0=S.meta[b+COFF],c1=c0+S.meta[b+CN];
  for(let c=c0;c<c1;c++){const v=S.cig[c],l=v>>>4,op=v&15;
   if(op===OP.EQ||op===OP.X||op===OP.M){for(let k=0;k<l;k++)row[r+k]=baseAt(S,i,q+k,rev,len,o);r+=l;q+=l;}
-  else if(op===OP.I){if(r<L)ins[r]+=l;q+=l;}
+  else if(op===OP.I){ins[r]+=l;q+=l;}
   else if(op===OP.D){row.fill(GAP,r,r+l);r+=l;}
  }
  return true;
@@ -63,8 +63,9 @@ export function countRow(S,i,ref){
 export const identityOf=c=>{const d=c.match+c.mismatch+c.insertion+c.deletion;return d?c.match/d:null;};
 
 // Display columns: every reference position plus all insertion columns seen in any row.
-export function buildColumns(insMax){
- const L=insMax.length;const colOf=new Int32Array(L+1);let c=0;for(let r=0;r<L;r++){c+=insMax[r];colOf[r]=c++;}colOf[L]=c;
+// insMax[L], when present, holds columns after the last reference position.
+export function buildColumns(insMax,L=insMax.length){
+ const colOf=new Int32Array(L+1);let c=0;for(let r=0;r<L;r++){c+=insMax[r];colOf[r]=c++;}c+=insMax[L]|0;colOf[L]=c;
  const refOfCol=new Int32Array(c).fill(-1);for(let r=0;r<L;r++)refOfCol[colOf[r]]=r;
  return {colOf,refOfCol,insMax,total:c};
 }

@@ -18,7 +18,7 @@ export function classify(row,ins,p,end3){
   if(!(m&want)){mm++;if(strand>0?k>=L-end3:k<end3)e3=true;}
   else if(m&~want)unresolved=true;}
  const flag=e3?END3_FLAG:0;
- if(indel)return CAT.INDEL|flag;if(mm===1)return CAT.MM1|flag;if(mm>1)return CAT.MM2|flag;if(unresolved)return CAT.UNRESOLVED;return CAT.MATCH;
+ if(indel)return CAT.INDEL|flag;if(mm>1)return CAT.MM2|flag;if(unresolved)return CAT.UNRESOLVED|flag;if(mm===1)return CAT.MM1|flag;return CAT.MATCH;
 }
 // User rule: the last end3 bases at the 3' end match exactly and the whole primer has at most maxMismatch mismatches.
 // Perfect matches pass. Indels, uncovered bases and bases that cannot be resolved do not.
@@ -31,18 +31,20 @@ export function passesRule(row,ins,p,{end3,maxMismatch}){
 // Generator: yields the records done so far, so the worker can stop between slices.
 export function* computeBinding(S,order,primers,refLength,{end3=3,rule=DEFAULT_RULE,reference=null}={}){
  const P=primers.filter(p=>p.site).map(p=>({id:p.id,name:p.name,set:p.set,sequence:p.sequence,start:p.site.start,end:p.site.end,strand:p.site.strand,masks:Uint8Array.from(siteForm(p),c=>MASK[c.charCodeAt(0)]),counts:[0,0,0,0,0,0],end3:0,rule:0,variants:new Map()}));
- const rows=order.length,n=rows+(reference?1:0),row=new Uint8Array(refLength),ins=new Uint16Array(refLength),cats=new Uint8Array(P.length*n),dec=new TextDecoder();
+ const rows=order.length,n=rows+(reference?1:0),row=new Uint8Array(refLength),ins=new Uint32Array(refLength),cats=new Uint8Array(P.length*n),dec=new TextDecoder();
  for(let v=0;v<n;v++){
   let ok=true;if(v<rows)ok=expandRow(S,order[v],row,ins);else{row.set(reference);ins.fill(0);}
   for(let j=0;j<P.length;j++){const p=P[j],pass=ok&&passesRule(row,ins,p,rule),c=(ok?classify(row,ins,p,end3):CAT.UNCOVERED)|(pass?RULE_FLAG:0),cat=c&7;cats[j*n+v]=c;p.counts[cat]++;if(c&END3_FLAG)p.end3++;if(pass)p.rule++;
-   if(cat!==CAT.UNCOVERED){const key=dec.decode(row.subarray(p.start,p.end));p.variants.set(key,(p.variants.get(key)||0)+1);}}
+   if(cat!==CAT.UNCOVERED){let key=dec.decode(row.subarray(p.start,p.end));for(let k=1;k<p.masks.length;k++)if(ins[p.start+k])key+=`\t${k}:${ins[p.start+k]}`;p.variants.set(key,(p.variants.get(key)||0)+1);}}
   if((v+1)%YIELD_EVERY===0)yield v+1;
  }
  const result=P.map(p=>{const list=[...p.variants].sort((a,b)=>b[1]-a[1]||(a[0]<b[0]?-1:1));
   return {id:p.id,name:p.name,set:p.set,start:p.start,end:p.end,strand:p.strand,total:n,counts:p.counts,end3:p.end3,rule:p.rule,variantCount:list.length,
-   variants:list.slice(0,TOP_VARIANTS).map(([s,count])=>{const seq=s.replaceAll('\0','.');return {sequence:p.strand>0?seq:reverseComplementSafe(seq),count,differences:differences(s,p.masks)};})};});
+   variants:list.slice(0,TOP_VARIANTS).map(([s,count])=>{const [body,...tags]=s.split('\t'),seq=body.replaceAll('\0','.'),marks=tags.map(t=>t.split(':').map(Number));return {sequence:markInsertions(p.strand>0?seq:reverseComplementSafe(seq),marks,p.strand),count,differences:differences(body,p.masks)+marks.reduce((a,m)=>a+m[1],0)};})};});
  return {result,cats,n,end3,rule,reference:!!reference};
 }
+// An insertion inside the site appears as (+n); only its length is kept per row.
+function markInsertions(seq,marks,strand){let out=seq;for(const [at,n] of marks.map(([k,n])=>[strand>0?k:seq.length-k,n]).sort((a,b)=>b[0]-a[0]))out=`${out.slice(0,at)}(+${n})${out.slice(at)}`;return out;}
 function differences(s,masks){let d=0;for(let k=0;k<masks.length;k++){const c=s.charCodeAt(k);if(c===GAP||!(MASK[c]&masks[k]))d++;}return d;}
 const reverseComplementSafe=s=>s.includes('-')?[...s].reverse().map(c=>c==='-'?'-':reverseComplement(c)).join(''):reverseComplement(s);
 export function runToEnd(gen){let x=gen.next();while(!x.done)x=gen.next();return x.value;}

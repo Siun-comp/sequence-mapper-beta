@@ -19,12 +19,12 @@ async function loadMapping({reference,queries}){
 async function loadAligned({file,referenceName}){
  let seen=0;const store=new RecordStore(Math.max(1<<20,Math.min(file.size,2**31)),true),report=await readInto(store,file,0,{onBytes(n){seen+=n;send({type:'progress',done:seen,total:file.size});}});
  if(report.errors.length)throw Error(report.errors[0]);
- const raw=store.finish();alignedRowLength(raw);
+ const raw=store.finish();if(raw.badChars.length)throw Error('정렬 파일에 지원하지 않는 문자가 있습니다: '+raw.badChars.map(x=>x[0]).join(' '));alignedRowLength(raw);
  const row=findReferenceRow(raw.names,referenceName),res=alignedToRecords(raw,row);
  return {reference:{name:res.reference.name,sequence:res.reference.sequence,features:null,format:'Aligned FASTA',source:null,file:file.name,flags:0},data:res.data,reports:[report],counts:summarizeFlags(res.data.flags),duplicates:duplicateIds(res.data.names),files:[file.name],columns:res.columns,rows:res.data.names.length+1};
 }
 async function loadProject({file}){
- const {manifest,sections:x}=await readProject(file.stream(),(done,total)=>send({type:'progress',done,total})),names=decodeNames(x.names),data={pool:x.pool,offs:x.offs,flags:x.flags,fileIdx:x.fileIdx,meta:x.meta,cig:x.cig,extra:x.extra};
+ const {manifest,sections:x}=await readProject(file.stream(),(done,total)=>send({type:'progress',done,total})),names=decodeNames(x.names),data={pool:x.pool,offs:x.offs,flags:x.flags,fileIdx:x.fileIdx,meta:x.meta,cig:x.cig,extra:x.extra,...(x.inputOrder?{inputOrder:x.inputOrder}:{})};
  checkDataset(data,x.ref.length,names.length);return {manifest,ref:x.ref,data:{...data,names},bindingCats:x.bindingCats??null,bindingOrder:x.bindingOrder??null};
 }
 self.onmessage=async({data:d})=>{
