@@ -111,7 +111,7 @@ export function setupPrimers(host){
  const reverseGapped=s=>s.split('-').map(reverseComplement).reverse().join('-');
  function copyText(){const r=P.range,n=laneCount(r),w=r.c1-r.c0;if(n*w>MAX_COPY_CELLS)return {error:`선택이 ${n.toLocaleString()}줄로 너무 큽니다. 내보내기의 Aligned FASTA를 쓰세요.`};const buf=new Uint8Array(w);
   if(n===1){const t=laneText(firstLane(r),r,buf);return {text:$('selection-strand').value==='-'?reverseGapped(t):t};}
-  const out=[];for(let k=0;k<n;k++){const lane=r.from+k;out.push(`>${laneName(lane)}\n${laneText(lane,r,buf)}\n`);}return {text:out.join('')};}
+  const out=[];for(let k=0;k<n;k++){const lane=r.from+k;out.push(`${laneText(lane,r,buf)}\n`);}return {text:out.join('')};}
  function onRange(r){P.range=r;const c=host.cols(),n=laneCount(r),buf=new Uint8Array(r.c1-r.c0);let a=r.c0,b=r.c1-1;while(a<r.c1&&c.refOfCol[a]<0)a++;while(b>=r.c0&&c.refOfCol[b]<0)b--;
   const start=a<r.c1?c.refOfCol[a]:-1,end=b>=r.c0?c.refOfCol[b]+1:-1,where=start>=0?toDisplay(start).toLocaleString()+'–'+end.toLocaleString():'insertion 열';
   $('selection').hidden=false;$('selection').classList.toggle('is-multi',n>1);$('selection-state').textContent='';clearTimeout(timer);
@@ -130,7 +130,10 @@ export function setupPrimers(host){
   const t=r.tm;$('selection-tm').textContent=t.status==='ok'?(t.variants>1?`${t.min.toFixed(1)}–${t.max.toFixed(1)} °C · 평균 ${t.mean.toFixed(1)} · 변이 ${t.variants}종`:`${t.mean.toFixed(1)} °C`):`N/A (${t.reason})`;$('selection-tm').title=t.model??'';
   const f=r.self;$('selection-self').textContent=f.status==='ok'?`최저 ${f.text} kcal/mol · 구조 ${f.structures.toLocaleString()}개`+(f.variants>1?` · 변이 ${f.variants}종`:'')+(f.warning?' · ≤ −9 경고':''):f.status==='none'?'검출 구조 없음':`N/A (${f.reason})`;$('selection-self').classList.toggle('warn',!!f.warning);};
  $('selection-strand').addEventListener('change',analyze);
- $('selection-clear').addEventListener('click',()=>{host.viewer.clearRange();$('selection').hidden=true;P.selection=null;});
+ const clearSelection=()=>{host.viewer.clearRange();$('selection').hidden=true;P.selection=null;};
+ $('selection-clear').addEventListener('click',clearSelection);
+ // Esc keeps its meaning in dialogs and text fields; the find box handles its own.
+ document.addEventListener('keydown',e=>{if(e.key!=='Escape'||e.defaultPrevented||$('selection').hidden||document.querySelector('dialog[open]')||document.activeElement?.matches?.('input:not([type=checkbox],[type=range]),textarea,select'))return;clearSelection();});
  $('selection-copy').addEventListener('click',async()=>{const c=copyText();if(c.error){$('selection-state').textContent=c.error;return;}try{await navigator.clipboard.writeText(c.text);$('selection-state').textContent='복사했습니다.';}catch{$('selection-state').textContent='복사에 실패했습니다.';}});
  // The copy event needs no clipboard permission. Text fields and text the user selected keep the normal copy.
  document.addEventListener('copy',e=>{const a=document.activeElement;if(!P.range||$('selection').hidden||$('pane-viewer').hidden||document.querySelector('dialog[open]')||a?.matches?.('input:not([type=checkbox]),textarea')||String(getSelection()))return;const c=copyText();if(c.error){$('selection-state').textContent=c.error;return;}e.clipboardData.setData('text/plain',c.text);e.preventDefault();$('selection-state').textContent='복사했습니다.';});
