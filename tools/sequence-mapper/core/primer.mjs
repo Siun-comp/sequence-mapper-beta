@@ -29,19 +29,22 @@ export function parseText(text){
  const sep=lines[0].includes('\t')?'\t':lines[0].includes(',')?',':/\s+/;
  return {rows:lines.map(l=>typeof sep==='string'?splitQuoted(l,sep):l.split(sep).map(c=>c.trim().replace(/^"(.*)"$/,'$1')))};
 }
-const NAME=/^(primer[_ ]?name|name|oligo|oligo[_ ]?name|primer|id|이름|프라이머|올리고)$/i,SEQ=/^(sequence(_5to3)?|seq|5.?-?3.?|서열|염기서열)$/i,SET=/^(set(_id)?|group|세트|그룹)$/i;
+const NAME=/^(primer[_ ]?name|name|oligo|oligo[_ ]?name|primer|id|이름|프라이머|올리고)$/i,SEQ=/^(sequence(_5to3)?|sequence \(with extension\)|seq|5.?-?3.?|서열|염기서열)$/i,SET=/^(set(_id)?|group|세트|그룹)$/i,TYPE=/^type$/i,PRIMER_TYPE=/^primer(_bind)?$/i;
+// A Geneious annotation table has a Type column; only primer rows are read from it.
+const isPrimerType=v=>PRIMER_TYPE.test(String(v??'').trim());
 // Finds columns from a header row; a first row that already holds a sequence means there is no header.
 export function detectColumns(rows){
  const head=rows[0]??[],find=re=>head.findIndex(c=>re.test(String(c).trim()));let name=find(NAME),sequence=find(SEQ),set=find(SET);
- if(name>=0||sequence>=0)return {header:true,name,sequence,set};
+ if(name>=0||sequence>=0){let type=find(TYPE);if(type>=0&&!rows.slice(1).some(r=>isPrimerType(r[type])))type=-1;return {header:true,name,sequence,set,type};}
  const looksSeq=c=>/^[ACGTUacgtuRYSWKMBDHVNryswkmbdhvn\s]{8,}$/.test(String(c));
  sequence=head.findIndex(looksSeq);name=head.findIndex((c,i)=>i!==sequence&&String(c).trim());
- return {header:false,name,sequence,set:-1};
+ return {header:false,name,sequence,set:-1,type:-1};
 }
 export function buildPrimers(rows,map,{defaultSet='',existing=[]}={}){
- const primers=[],errors=[],taken=new Set(existing.map(p=>p.set+'\0'+p.name)),first=map.header?1:0;
+ const primers=[],errors=[],type=map.type??-1;let skipped=0;const taken=new Set(existing.map(p=>p.set+'\0'+p.name)),first=map.header?1:0;
  for(let i=first;i<rows.length;i++){const r=rows[i],line=i+1;
   if(!r||r.every(c=>!String(c??'').trim()))continue;
+  if(type>=0&&!isPrimerType(r[type])){skipped++;continue;}
   const name=String(r[map.name]??'').trim(),raw=r[map.sequence];
   if(!name){errors.push(`${line}행: 이름이 없습니다.`);continue;}
   const n=normalizeSequence(raw);if(n.error){errors.push(`${line}행 ${name}: ${n.error}`);continue;}
@@ -49,7 +52,7 @@ export function buildPrimers(rows,map,{defaultSet='',existing=[]}={}){
   let unique=name,k=2;while(taken.has(set+'\0'+unique))unique=`${name} (${k++})`;taken.add(set+'\0'+unique);
   primers.push({name:unique,set,sequence:n.sequence,renamed:unique!==name,visible:true});
  }
- return {primers,errors};
+ return {primers,errors,skipped};
 }
 
 // Scans both strands. Minus-strand hits compare the reverse complement, so 3' lies at the left end of the site.

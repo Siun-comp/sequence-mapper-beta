@@ -51,16 +51,16 @@ export function setupPrimers(host){
  $('primer-cancel').addEventListener('click',()=>dialog.close());
  function preview(rows){
   $('primer-error').textContent='';if(!rows.length){$('primer-preview').hidden=true;$('primer-add').disabled=true;return;}
-  const map=detectColumns(rows),width=Math.max(...rows.slice(0,50).map(r=>r.length));P.draft={rows,map};
+  const map=detectColumns(rows),width=Math.max(...rows.slice(0,50).map(r=>r.length));P.draft={rows,map,type:map.type};
   for(const [id,key,optional] of [['map-name','name',false],['map-sequence','sequence',false],['map-set','set',true]]){const s=$(id);s.replaceChildren();if(optional)s.append(el('option',{value:-1,textContent:'사용 안 함'}));for(let c=0;c<width;c++)s.append(el('option',{value:c,textContent:map.header?`${c+1}열: ${rows[0][c]??''}`:`${c+1}열`}));s.value=map[key]??-1;}
   $('map-header').checked=map.header;$('primer-preview').hidden=false;updateDraft();
  }
  function updateDraft(){
-  const d=P.draft;if(!d)return;d.map={header:$('map-header').checked,name:+$('map-name').value,sequence:+$('map-sequence').value,set:+$('map-set').value};
+  const d=P.draft;if(!d)return;d.map={header:$('map-header').checked,name:+$('map-name').value,sequence:+$('map-sequence').value,set:+$('map-set').value,type:d.type};
   const r=buildPrimers(d.rows,d.map,{defaultSet:$('primer-set').value.trim(),existing:P.list});d.result=r;
   const t=$('primer-preview-rows');t.replaceChildren(...r.primers.slice(0,8).map(p=>el('tr',{},el('td',{},p.set||'–'),el('td',{},p.name),el('td',{class:'mono'},p.sequence))));
   const renamed=r.primers.filter(p=>p.renamed).length;
-  $('primer-preview-note').textContent=`등록 ${r.primers.length.toLocaleString()}개`+(r.primers.length>8?' (앞 8개 표시)':'')+(renamed?` · 같은 이름 ${renamed}개는 번호를 붙입니다`:'')+(r.errors.length?` · 오류 ${r.errors.length}행`:'');
+  $('primer-preview-note').textContent=`등록 ${r.primers.length.toLocaleString()}개`+(r.primers.length>8?' (앞 8개 표시)':'')+(renamed?` · 같은 이름 ${renamed}개는 번호를 붙입니다`:'')+(r.skipped?` · primer가 아닌 주석 ${r.skipped.toLocaleString()}행은 읽지 않음`:'')+(r.errors.length?` · 오류 ${r.errors.length}행`:'');
   $('primer-error').textContent=r.errors.slice(0,6).join('\n')+(r.errors.length>6?`\n외 ${r.errors.length-6}행`:'');$('primer-add').disabled=!r.primers.length;
  }
  $('primer-paste').addEventListener('input',e=>preview(parseText(e.target.value).rows));
