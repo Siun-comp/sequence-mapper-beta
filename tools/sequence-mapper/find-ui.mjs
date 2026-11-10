@@ -74,7 +74,8 @@ export function setupFind(host){
   if(!running)pending=0;render();
  }
  const reset=()=>{stop();key='';blank();paint();};
- input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();go(e.shiftKey?-1:1);}else if(e.key==='Escape'){e.preventDefault();reset();host.viewer.scroller.focus({preventScroll:true});}});
+ // Keys that confirm or cancel an IME (e.g. Korean) composition belong to the IME, not to search.
+ input.addEventListener('keydown',e=>{if(e.isComposing||e.keyCode===229)return;if(e.key==='Enter'){e.preventDefault();go(e.shiftKey?-1:1);}else if(e.key==='Escape'){e.preventDefault();reset();host.viewer.scroller.focus({preventScroll:true});}});
  $('find-next').addEventListener('click',()=>go(1));$('find-prev').addEventListener('click',()=>go(-1));$('find-clear').addEventListener('click',()=>{input.value='';reset();input.focus();});
  for(const id of ['find-scope','find-both','find-ambiguity-query','find-ambiguity-sequence','find-mismatch'])$(id).addEventListener('change',()=>{$('find-options').hidden=scope()==='names';if(input.value.trim())start({jump:true});else reset();});
  $('find-only').addEventListener('click',()=>{const order=host.order(),rows=new Set();for(let i=0;i<F.count;i++){const r=F.data[i*HIT_STRIDE];if(r>=0)rows.add(order[r]);}host.forceRecords([...rows],'찾은 서열');});
