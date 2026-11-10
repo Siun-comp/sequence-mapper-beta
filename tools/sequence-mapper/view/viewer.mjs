@@ -17,7 +17,7 @@ export class Viewer{
   this.nameW=DEFAULT_NAME_W;this.cell=ZOOMS[0];this.mode='all';this.nameMode='both';this.compare='reference';this.selected=-1;this.mark=-1;this.data=null;this.queued=false;this.lastFrameMs=0;this.primers=[];this.lanes=0;this.top=BASE_TOP;this.range=null;this.drag=null;this.pointer=null;this.activePrimer=null;this.found=null;this.consLabel='Consensus';
   this.scroller.addEventListener('scroll',()=>this.request(),{passive:true});this.scroller.addEventListener('wheel',e=>this.wheel(e),{passive:false});
   new ResizeObserver(()=>this.resize()).observe(this.scroller);
-  this.canvas.addEventListener('mousemove',e=>this.move(e));this.canvas.addEventListener('mouseleave',()=>this.onHover?.(null));this.canvas.addEventListener('mousedown',e=>this.down(e));addEventListener('mouseup',e=>this.up(e));addEventListener('mousemove',e=>{if(this.drag&&!this.drag.resize){this.pointer=e;this.follow();}});
+  this.canvas.addEventListener('mousemove',e=>this.move(e));this.canvas.addEventListener('mouseleave',()=>this.onHover?.(null));this.canvas.addEventListener('mousedown',e=>this.down(e));this.canvas.addEventListener('dblclick',()=>{const q=this.lastPrimer;if(q&&performance.now()-q.t<800)this.onPrimerEdit?.(q.id);});addEventListener('mouseup',e=>this.up(e));addEventListener('mousemove',e=>{if(this.drag&&!this.drag.resize){this.pointer=e;this.follow();}});
   this.scroller.addEventListener('keydown',e=>this.key(e));this.resize();
  }
  setData(d){this.data=d;this.buf=new Uint8Array(d.cols.total+1);this.refRow=new Uint8Array(d.cols.total);this.consRow=new Uint8Array(d.cols.total);
@@ -151,7 +151,7 @@ export class Viewer{
  nearSplit(p){return p&&Math.abs(p.px-this.nameW)<=4;}
  move(e){const p=this.locate(e);if(this.drag?.resize){if(p)this.setNameWidth(p.px);return;}this.canvas.style.cursor=this.nearSplit(p)?'col-resize':'';if(this.drag)return;this.onHover?.(p);}
  down(e){if(e.button)return;const p=this.locate(e);if(!p)return;if(this.nearSplit(p)){e.preventDefault();this.drag={resize:true};this.request();return;}if(p.track==='overview'&&p.px>=this.nameW){this.scrollToColumn((p.px-this.nameW)/(this.width-this.nameW)*this.data.cols.total);return;}
-  if(p.primer){this.onPrimer?.(p.primer.id);return;}
+  if(p.primer){this.lastPrimer={id:p.primer.id,t:performance.now()};this.onPrimer?.(p.primer.id);return;}
   if(p.col<0){if(p.row>=0)this.onSelect?.(p.row);return;}
   if(p.track==='other')return;
   e.preventDefault();this.drag={start:p.col,lane:p.track==='consensus'?-2:p.track==='reference'?-1:p.row,moved:false,row:p.row};this.pointer=e;this.scroller.focus({preventScroll:true});}

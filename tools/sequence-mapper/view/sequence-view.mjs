@@ -12,7 +12,7 @@ export class SequenceView{
   this.sequence=null;this.primers=[];this.annotations=[];this.lines=[];this.range=null;this.mark=-1;this.found=null;this.activePrimer=null;this.showComplement=false;this.queued=false;this.drag=null;this.per=60;this.lastFrameMs=0;
   this.ctx.font=FONT;this.cw=Math.ceil(this.ctx.measureText('A').width)+2;
   this.scroller.addEventListener('scroll',()=>this.request(),{passive:true});new ResizeObserver(()=>this.resize()).observe(this.scroller);
-  this.canvas.addEventListener('mousemove',e=>this.move(e));this.canvas.addEventListener('mouseleave',()=>this.onHover?.(null));this.canvas.addEventListener('mousedown',e=>this.down(e));addEventListener('mouseup',()=>this.up());this.resize();
+  this.canvas.addEventListener('mousemove',e=>this.move(e));this.canvas.addEventListener('mouseleave',()=>this.onHover?.(null));this.canvas.addEventListener('mousedown',e=>this.down(e));this.canvas.addEventListener('dblclick',()=>{const q=this.lastPrimer;if(q&&performance.now()-q.t<800)this.onPrimerEdit?.(q.id);});addEventListener('mouseup',()=>this.up());this.resize();
  }
  get length(){return this.sequence?.length??0;}
  setData(sequence){this.sequence=sequence;this.range=null;this.mark=-1;this.found=null;this.layout();}
@@ -88,7 +88,7 @@ export class SequenceView{
  move(e){const p=this.locate(e);if(this.drag&&p?.pos>=0){this.extend(p.pos);return;}this.canvas.style.cursor=p?.piece?'pointer':p?.onBases?'text':'';this.onHover?.(this.hoverText(p));}
  down(e){
   if(e.button)return;const p=this.locate(e);if(!p||p.pos<0)return;
-  if(p.piece){const it=p.piece.item;if(it.kind==='primer')this.onPrimer?.(it.id);else{const r=p.piece.range;this.range={c0:r.start,c1:r.end,source:'reference',row:-1};this.request();this.onRange?.(this.range);}return;}
+  if(p.piece){const it=p.piece.item;if(it.kind==='primer'){this.lastPrimer={id:it.id,t:performance.now()};this.onPrimer?.(it.id);}else{const r=p.piece.range;this.range={c0:r.start,c1:r.end,source:'reference',row:-1};this.request();this.onRange?.(this.range);}return;}
   if(!p.onBases)return;e.preventDefault();this.drag={start:p.pos,moved:false};this.scroller.focus({preventScroll:true});
  }
  extend(pos){const d=this.drag;if(pos!==d.start)d.moved=true;if(!d.moved)return;this.range={c0:Math.min(d.start,pos),c1:Math.max(d.start,pos)+1,source:'reference',row:-1};this.request();this.onRange?.(this.range);}

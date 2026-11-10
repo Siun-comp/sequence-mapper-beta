@@ -32,8 +32,8 @@ export function primerGff3({referenceId,referenceLength,primers,circular=false})
  if(missing.length)out.push(`# 위치를 찾지 못해 제외한 primer ${missing.length}개: ${missing.map(p=>p.name.replace(/\s+/g,' ')).join(', ')}`);
  return out.join('\n')+'\n';
 }
-export const PRIMER_COLUMNS=['Set','Name','Sequence','Length','Mixed_bases','Start_1based','End_1based','Strand','Mismatches_vs_target','Unresolved_vs_target','Status','Visible','Tm_C','GC_percent'];
-export function primerRows(primers,{length=Infinity,metrics=()=>({tm:'',gc:''})}={}){return primers.map(p=>{const m=metrics(p);return [p.set,p.name,p.sequence,p.sequence.length,mixedBases(p.sequence),p.site?p.site.start+1:'',p.site?endOf(p.site,length):'',p.site?(p.site.strand>0?'+':'-'):'',p.site?.mismatches??'',p.site?(p.site.unresolved??0):'',p.site?sourceLabel(p):'위치 없음',p.visible?'Y':'N',m.tm,m.gc];});}
+export const PRIMER_COLUMNS=['Set','Name','Sequence','Length','Mixed_bases','Start_1based','End_1based','Strand','Mismatches_vs_target','Unresolved_vs_target','Status','Visible','Tm_C','GC_percent','Self_dimer_min_dG'];
+export function primerRows(primers,{length=Infinity,metrics=()=>({tm:'',gc:''})}={}){return primers.map(p=>{const m=metrics(p);return [p.set,p.name,p.sequence,p.sequence.length,mixedBases(p.sequence),p.site?p.site.start+1:'',p.site?endOf(p.site,length):'',p.site?(p.site.strand>0?'+':'-'):'',p.site?.mismatches??'',p.site?(p.site.unresolved??0):'',p.site?sourceLabel(p):'위치 없음',p.visible?'Y':'N',m.tm,m.gc,m.self??''];});}
 const CRLF=String.fromCharCode(13,10);
 export function primerCsv(primers,options){
  return '﻿'+[PRIMER_COLUMNS,...primerRows(primers,options)].map(r=>r.map(csvCell).join(',')).join(CRLF)+CRLF;
