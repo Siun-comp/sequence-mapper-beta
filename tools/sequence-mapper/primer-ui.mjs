@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Primer registration, list, binding table and selected-range analysis.
 import {PLACEMENT_METHOD,MIN_PRIMER_LENGTH,MAX_PRIMER_LENGTH,MASK,parseText,detectColumns,buildPrimers,placePrimer,chooseHit,reverseComplement,mixedBases,normalizeSequence,findSites} from './core/primer.mjs';
-import {CAT,CAT_LABEL,BINDING_NOTE,BINDING_METHOD,recordsInCell} from './core/binding.mjs';
+import {CAT,CAT_LABEL,BINDING_NOTE,BINDING_METHOD,recordsInCell,variantParts,isWholeDeletion} from './core/binding.mjs';
 import {readFirstSheet} from './core/xlsx-read.mjs';
 import {DEFAULT_CONDITIONS,tmSummary,gcRange,selfDimerSummary} from './core/selection.mjs';
 import {toDisplay} from './core/alignment.mjs';
@@ -97,7 +97,12 @@ export function setupPrimers(host){
  // Rows in the primer list order; results of deleted primers come last until the next analysis.
  function bindingView(b){const pos=new Map(b.result.map((t,i)=>[t.id,i])),out=[];const push=i=>{const t=b.result[i],p=P.list.find(x=>x.id===t.id);out.push({t:p?{...t,name:p.name,set:p.set}:t,index:i});};for(const p of P.list){const i=pos.get(p.id);if(i!==undefined){push(i);pos.delete(p.id);}}for(const i of pos.values())push(i);return out;}
  function show(index,c,label){const b=P.binding,t=b.result[index],list=recordsInCell(b.cats,b.n,index,P.order,c);host.forceRecords(list,`${t.name} · ${label}`);focus(t.id);}
- function variants(t){$('variant-title').textContent=`${t.name} 구간 변이형 (5′→3′, primer 방향)`;$('variant-note').textContent=`서로 다른 형태 ${t.variantCount.toLocaleString()}개`+(t.variantCount>t.variants.length?` 중 많은 순서 ${t.variants.length}개`:'')+'. 건수는 레코드 수입니다. insertion은 위치와 길이(+n)만 구분하므로 삽입된 염기가 달라도 한 형태로 셉니다. 확정 차이는 확정 mismatch와 indel 길이의 합이며, N 등 판정 불가 염기는 세지 않으므로 0이어도 완전일치가 아닐 수 있습니다.';$('variant-rows').replaceChildren(...t.variants.map(v=>el('tr',{},el('td',{class:'mono'},v.sequence),el('td',{class:'num'},v.count.toLocaleString()),el('td',{class:'num'},pct(v.count,t.total)),el('td',{class:'num'},String(v.differences)))));$('variant-dialog').showModal();}
+ function variants(t){const primer=t.primer??P.list.find(p=>p.id===t.id)?.sequence??'',miss=t.counts[CAT.UNCOVERED],evaluated=t.total-miss;
+  $('variant-title').textContent=`${t.name} 구간 변이형 (5′→3′, primer 방향)`;
+  $('variant-note').textContent=`서로 다른 형태 ${t.variantCount.toLocaleString()}개`+(t.variantCount>t.variants.length?` 중 많은 순서 ${t.variants.length}개`:'')+`. 비율은 구간을 평가한 ${evaluated.toLocaleString()}건 기준이며 구간 미포함 ${miss.toLocaleString()}건은 제외합니다. 건수는 레코드 수입니다. Primer와 다른 염기·deletion(-)·insertion(+n)은 붉은색, N 등 판정 불가 염기는 노란색입니다. insertion은 위치와 길이만 구분하므로 삽입된 염기가 달라도 한 형태로 셉니다. 확정 차이는 확정 mismatch와 indel 길이의 합이며, 판정 불가 염기는 세지 않으므로 0이어도 완전일치가 아닐 수 있습니다. 구간 전체 deletion은 결합 현황에서 indel 포함으로 셉니다.`;
+  const seqCell=v=>{const td=el('td',{class:'mono'});if(isWholeDeletion(v.sequence)){td.append(el('span',{class:'var-del var-whole',textContent:'구간 전체 deletion'}),` (${v.sequence.length} nt)`);return td;}const parts=primer&&variantParts(v.sequence,primer);if(!parts){td.textContent=v.sequence;return td;}for(const x of parts)td.append(x.kind?el('span',{class:`var-${x.kind}`,textContent:x.text}):x.text);return td;};
+  const head=primer?[el('tr',{class:'variant-ref'},el('td',{class:'mono',textContent:primer}),el('td',{class:'num',textContent:'Primer'}),el('td',{}),el('td',{}))]:[];
+  $('variant-rows').replaceChildren(...head,...t.variants.map(v=>el('tr',{},seqCell(v),el('td',{class:'num'},v.count.toLocaleString()),el('td',{class:'num'},pct(v.count,evaluated)),el('td',{class:'num'},String(v.differences)))));$('variant-dialog').showModal();}
  $('variant-close').addEventListener('click',()=>$('variant-dialog').close());
  $('binding-csv').addEventListener('click',()=>host.saveText('binding_summary.csv','text/csv',bindingCsv({...P.binding,result:bindingView(P.binding).map(x=>x.t)},COLS,value,`${host.scopeText(P.order,P.binding.reference)}. ${refNote(P.binding)}조건 충족: ${ruleText(P.binding.rule)}. ${BINDING_NOTE}`)));
  function tableText(){const b=P.binding,head=['Set','Primer','대상 서열',...COLS.map(c=>c[1])],rows=bindingView(b).map(x=>x.t).map(t=>[t.set,t.name,t.total,...COLS.map(([c])=>value(t,c))]);return {head,rows};}

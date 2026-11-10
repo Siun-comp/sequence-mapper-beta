@@ -41,7 +41,7 @@ export function* computeBinding(S,order,primers,refLength,{end3=3,rule=DEFAULT_R
   if((v+1)%YIELD_EVERY===0)yield v+1;
  }
  const result=P.map(p=>{const list=[...p.variants].sort((a,b)=>b[1]-a[1]||(a[0]<b[0]?-1:1));
-  return {id:p.id,name:p.name,set:p.set,start:p.start,end:p.end,strand:p.strand,total:n,counts:p.counts,end3:p.end3,rule:p.rule,variantCount:list.length,
+  return {id:p.id,name:p.name,set:p.set,primer:p.sequence,start:p.start,end:p.end,strand:p.strand,total:n,counts:p.counts,end3:p.end3,rule:p.rule,variantCount:list.length,
    variants:list.slice(0,TOP_VARIANTS).map(([s,count])=>{const [body,...tags]=s.split('\t'),seq=body.replaceAll('\0','.'),marks=tags.map(t=>t.split(':').map(Number));return {sequence:markInsertions(p.strand>0?seq:reverseComplementSafe(seq),marks,p.strand),count,differences:differences(body,p.masks)+marks.reduce((a,m)=>a+m[1],0)};})};});
  return {result,cats,n,end3,rule,reference:!!reference};
 }
@@ -49,6 +49,19 @@ export function* computeBinding(S,order,primers,refLength,{end3=3,rule=DEFAULT_R
 function markInsertions(seq,marks,strand){let out=seq;for(const [at,n] of marks.map(([k,n])=>[strand>0?k:seq.length-k,n]).sort((a,b)=>b[0]-a[0]))out=`${out.slice(0,at)}(+${n})${out.slice(at)}`;return out;}
 function differences(s,masks){let d=0;for(let k=0;k<masks.length;k++){const c=s.charCodeAt(k);if(c===GAP||!(MASK[c]&masks[k]))d++;}return d;}
 const reverseComplementSafe=s=>s.includes('-')?[...s].reverse().map(c=>c==='-'?'-':reverseComplement(c)).join(''):reverseComplement(s);
+// Splits a shown variant (primer direction, insertions as (+n)) into marked parts against the primer.
+// kind: '' same, 'mm' mismatch, 'del' deletion, 'ins' insertion, 'uk' not resolvable (N etc.). null when lengths do not fit.
+export function variantParts(shown,primer){
+ const out=[];let k=0;const add=(text,kind)=>{const l=out[out.length-1];if(l&&l.kind===kind)l.text+=text;else out.push({text,kind});};
+ for(let i=0;i<shown.length;i++){const c=shown[i];
+  if(c==='('){const j=shown.indexOf(')',i);if(j<0)return null;add(shown.slice(i,j+1),'ins');i=j;continue;}
+  if(k>=primer.length)return null;const want=MASK[primer.charCodeAt(k++)];
+  if(c==='-'){add(c,'del');continue;}
+  const m=MASK[c.charCodeAt(0)];add(c,!m||!(m&want)?'mm':m&~want?'uk':'');}
+ return k===primer.length?out:null;
+}
+// A site that is one deletion from end to end was not evaluated by sequence; it is shown as a whole-site deletion.
+export const isWholeDeletion=shown=>/^-+$/.test(shown);
 export function runToEnd(gen){let x=gen.next();while(!x.done)x=gen.next();return x.value;}
 // A counted reference is the extra last row and has no record position.
 // Record positions of one table cell. cat is a category, 'end3' for any 3' mismatch, or 'rule' for the user rule.
