@@ -5,6 +5,8 @@ export const MASK=new Uint8Array(256);for(const [k,v] of Object.entries(CODES))M
 const COMP={A:'T',C:'G',G:'C',T:'A',R:'Y',Y:'R',S:'S',W:'W',K:'M',M:'K',B:'V',V:'B',D:'H',H:'D',N:'N'};
 export const reverseComplement=s=>{let o='';for(let i=s.length-1;i>=0;i--)o+=COMP[s[i]];return o;};
 export const MAX_PRIMER_LENGTH=200,MIN_PRIMER_LENGTH=8;
+// Raised when site search changes. 2: N in the target is unresolved, not a match.
+export const PLACEMENT_METHOD=2;
 
 export function normalizeSequence(raw){
  const s=String(raw??'').toUpperCase().replace(/^\s*5['′]?\s*-?\s*/,'').replace(/\s*-?\s*3['′]?\s*$/,'').replace(/\s+/g,'').replace(/U/g,'T');

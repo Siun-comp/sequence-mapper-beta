@@ -14,7 +14,7 @@ import {setupList} from './list-ui.mjs';
 import {SequenceView} from './view/sequence-view.mjs';
 import {parseFeatures,featureTypes} from './core/features.mjs';
 import {gatherChunk,subsetData,MAX_LIST_BASES} from './core/list.mjs';
-export const TOOL_VERSION='0.1.0-dev.1';
+export const TOOL_VERSION='0.1.0-dev.2';
 const $=id=>document.getElementById(id),dec=new TextDecoder();
 const state={files:{reference:null,queries:[],aligned:null},loaded:null,S:null,R:null,order:null,workers:[],busy:false,analysis:null,statsId:0,cols:null,stats:null,navIndex:-1,selectedRecord:-1};
 const viewer=new Viewer($('viewer'),{onZoom:i=>{$('zoom').value=i;},onHover:hover,onSelect:selectRow,onRange:r=>primers.onRange(r),onPrimer:id=>primers.onPrimerClick(id)});

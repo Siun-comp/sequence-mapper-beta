@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Primer registration, list, binding table and selected-range analysis.
-import {parseText,detectColumns,buildPrimers,placePrimer,chooseHit,reverseComplement,mixedBases,normalizeSequence,findSites} from './core/primer.mjs';
-import {CAT,CAT_LABEL,BINDING_NOTE,recordsInCell} from './core/binding.mjs';
+import {PLACEMENT_METHOD,parseText,detectColumns,buildPrimers,placePrimer,chooseHit,reverseComplement,mixedBases,normalizeSequence,findSites} from './core/primer.mjs';
+import {CAT,CAT_LABEL,BINDING_NOTE,BINDING_METHOD,recordsInCell} from './core/binding.mjs';
 import {readFirstSheet} from './core/xlsx-read.mjs';
 import {DEFAULT_CONDITIONS,tmSummary,gcRange} from './core/selection.mjs';
 import {toDisplay} from './core/alignment.mjs';
@@ -76,7 +76,7 @@ export function setupPrimers(host){
   P.running=true;const id=++P.runId,order=host.baseOrder();P.order=order;$('binding-run').disabled=true;$('binding-cancel').hidden=false;$('binding-state').classList.remove('stale');$('binding-state').textContent='분석 중…';
   host.analysis().postMessage({type:'binding',id,order,primers,options:{end3:P.options.end3,includeReference:P.includeReference,rule:{end3:P.options.ruleEnd3,maxMismatch:P.options.ruleMismatch}}});
  }
- function done(d){if(d.id!==P.runId)return;P.running=false;P.binding=d;P.stale=false;$('binding-run').disabled=false;$('binding-cancel').hidden=true;$('binding-state').textContent=`${d.n.toLocaleString()}개 서열${d.reference?'(Reference 포함)':''} · primer ${d.result.length}개 분석 완료`;renderBinding();}
+ function done(d){if(d.id!==P.runId)return;P.running=false;d.method=BINDING_METHOD;P.legacy=false;P.binding=d;P.stale=false;$('binding-run').disabled=false;$('binding-cancel').hidden=true;$('binding-state').textContent=`${d.n.toLocaleString()}개 서열${d.reference?'(Reference 포함)':''} · primer ${d.result.length}개 분석 완료`;renderBinding();}
  function handle(d){if(d.type==='binding-progress'){if(d.id===P.runId)$('binding-state').textContent=`분석 중 ${d.done.toLocaleString()} / ${d.total.toLocaleString()}`;return true;}if(d.type==='binding-done'){done(d);return true;}return false;}
  $('binding-run').addEventListener('click',run);
  $('binding-cancel').addEventListener('click',()=>{host.analysis().postMessage({type:'binding-cancel'});P.running=false;P.runId++;$('binding-run').disabled=false;$('binding-cancel').hidden=true;$('binding-state').textContent='분석을 취소했습니다.';});
@@ -90,7 +90,7 @@ export function setupPrimers(host){
    tr.append(el('td',{},el('button',{type:'button',textContent:`변이형 ${t.variantCount.toLocaleString()}`,onclick(){variants(t);}})));body.append(tr);});
  }
  function show(index,c,label){const b=P.binding,t=b.result[index],list=recordsInCell(b.cats,b.n,index,P.order,c);host.forceRecords(list,`${t.name} · ${label}`);focus(t.id);}
- function variants(t){$('variant-title').textContent=`${t.name} 구간 변이형 (5′→3′, primer 방향)`;$('variant-note').textContent=`서로 다른 형태 ${t.variantCount.toLocaleString()}개`+(t.variantCount>t.variants.length?` 중 많은 순서 ${t.variants.length}개`:'')+'. 건수는 레코드 수입니다.';$('variant-rows').replaceChildren(...t.variants.map(v=>el('tr',{},el('td',{class:'mono'},v.sequence),el('td',{class:'num'},v.count.toLocaleString()),el('td',{class:'num'},pct(v.count,t.total)),el('td',{class:'num'},String(v.differences)))));$('variant-dialog').showModal();}
+ function variants(t){$('variant-title').textContent=`${t.name} 구간 변이형 (5′→3′, primer 방향)`;$('variant-note').textContent=`서로 다른 형태 ${t.variantCount.toLocaleString()}개`+(t.variantCount>t.variants.length?` 중 많은 순서 ${t.variants.length}개`:'')+'. 건수는 레코드 수입니다. insertion은 위치와 길이(+n)만 구분하므로 삽입된 염기가 달라도 한 형태로 셉니다. 확정 차이는 확정 mismatch와 indel 길이의 합이며, N 등 판정 불가 염기는 세지 않으므로 0이어도 완전일치가 아닐 수 있습니다.';$('variant-rows').replaceChildren(...t.variants.map(v=>el('tr',{},el('td',{class:'mono'},v.sequence),el('td',{class:'num'},v.count.toLocaleString()),el('td',{class:'num'},pct(v.count,t.total)),el('td',{class:'num'},String(v.differences)))));$('variant-dialog').showModal();}
  $('variant-close').addEventListener('click',()=>$('variant-dialog').close());
  $('binding-csv').addEventListener('click',()=>host.saveText('binding_summary.csv','text/csv',bindingCsv(P.binding,COLS,value,`${host.scopeText(P.order,P.binding.reference)}. ${refNote(P.binding)}조건 충족: ${ruleText(P.binding.rule)}. ${BINDING_NOTE}`)));
  function tableText(){const b=P.binding,head=['Set','Primer','대상 서열',...COLS.map(c=>c[1])],rows=b.result.map(t=>[t.set,t.name,t.total,...COLS.map(([c])=>value(t,c))]);return {head,rows};}
@@ -151,11 +151,13 @@ export function setupPrimers(host){
  // Tm conditions
  for(const [k,v] of Object.entries(P.conditions)){const i=$('tm-'+k);i.value=v;i.addEventListener('input',()=>{P.conditions[k]=i.value;analyze();renderList();});}
  function exportText(kind){const ref=host.referenceInfo();if(kind==='genbank')return ['reference_annotated.gb','text/plain',referenceGenbank({reference:ref,primers:P.list})];if(kind==='gff')return ['primer_annotations.gff3','text/plain',primerGff3({referenceId:host.referenceId(),referenceLength:ref.sequence.length,primers:P.list,circular:host.circular()})];return ['primer_sets.csv','text/csv',primerCsv(P.list,exportOptions())];}
- function snapshot(){const b=P.binding;return {state:{list:P.list.map(({hits,...p})=>({...p,hits:(hits??[]).slice(0,20)})),nextId:P.nextId,options:P.options,conditions:P.conditions,includeReference:P.includeReference,binding:b?{result:b.result,n:b.n,end3:b.end3,rule:b.rule,reference:!!b.reference,stale:P.stale}:null},cats:b?.cats??null,order:b?P.order:null};}
+ function snapshot(){const b=P.binding;return {state:{list:P.list.map(({hits,...p})=>({...p,hits:(hits??[]).slice(0,20)})),nextId:P.nextId,options:P.options,conditions:P.conditions,includeReference:P.includeReference,placementMethod:PLACEMENT_METHOD,binding:b?{result:b.result,n:b.n,end3:b.end3,rule:b.rule,reference:!!b.reference,method:b.method??BINDING_METHOD,stale:P.stale}:null},cats:b?.cats??null,order:b?P.order:null};}
  function restore(saved,cats,order){P.includeReference=!!saved.includeReference;P.list=saved.list;P.nextId=saved.nextId;P.options={...P.options,...saved.options};P.conditions={...P.conditions,...saved.conditions};
   for(const [id,k] of [['opt-mismatch','maxMismatch'],['opt-end3-exact','end3Exact'],['opt-end3','end3'],['opt-rule-end3','ruleEnd3'],['opt-rule-mismatch','ruleMismatch']])$(id).value=P.options[k];for(const [k,v] of Object.entries(P.conditions))$('tm-'+k).value=v;
-  $('primer-count').textContent=P.list.length?`(${P.list.length})`:'';P.binding=saved.binding&&cats?{...saved.binding,cats}:null;P.order=order;P.stale=saved.binding?.stale??true;P.restored=true;}
+  $('primer-count').textContent=P.list.length?`(${P.list.length})`:'';P.binding=saved.binding&&cats?{...saved.binding,cats}:null;P.order=order;P.stale=saved.binding?.stale??true;P.restored=true;
+  // Results and sites from an older rule set stay visible but are not presented as current.
+  P.legacy=!!P.binding&&(saved.binding.method??1)<BINDING_METHOD;if(P.legacy)P.stale=true;P.relocate=(saved.placementMethod??1)<PLACEMENT_METHOD;}
  // Sites found under the old shape no longer hold, so chosen positions are searched again.
  function onTopology(){P.list=P.list.map(p=>p.manual&&p.site.end<=host.reference().length?p:{...p,locked:false,manual:false});changed({rerun:false});}
- return {handle,onRange,exportText,snapshot,restore,onTopology,onData(){if(P.restored){P.restored=false;refreshViewer();renderList();renderBinding();$('binding-state').textContent=P.binding?(P.stale?'조건이 바뀌었습니다. 재분석이 필요합니다.':'저장된 결과입니다.'):'';return;}P.includeReference=host.referenceInList();P.binding=null;P.list=P.list.map(place);refreshViewer();renderList();},onConsensus(){if(P.list.some(p=>!p.manual&&p.site?.source!=='reference'))changed({rerun:false});},onFilter(){if(P.list.length){markStale();maybeAuto();}},onPrimerClick:focus,state:P,search,renderBinding};
+ return {handle,onRange,exportText,snapshot,restore,onTopology,onData(){if(P.restored){P.restored=false;if(P.relocate){P.relocate=false;P.list=P.list.map(place);}refreshViewer();renderList();renderBinding();$('binding-state').textContent=P.binding?(P.legacy?'이전 버전 기준으로 계산한 결과입니다. 재분석이 필요합니다.':P.stale?'조건이 바뀌었습니다. 재분석이 필요합니다.':'저장된 결과입니다.'):'';$('binding-state').classList.toggle('stale',!!P.binding&&P.stale);return;}P.includeReference=host.referenceInList();P.binding=null;P.list=P.list.map(place);refreshViewer();renderList();},onConsensus(){if(P.list.some(p=>!p.manual&&p.site?.source!=='reference'))changed({rerun:false});},onFilter(){if(P.list.length){markStale();maybeAuto();}},onPrimerClick:focus,state:P,search,renderBinding};
 }

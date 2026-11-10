@@ -5,6 +5,8 @@ import {MASK,siteForm,reverseComplement} from './primer.mjs';
 export const CAT=Object.freeze({MATCH:0,MM1:1,MM2:2,INDEL:3,UNRESOLVED:4,UNCOVERED:5});
 export const CAT_LABEL=Object.freeze(['일치','1 mismatch','2개 이상 mismatch','indel 포함','판정 불가(N 등)','구간 미포함']);
 export const END3_FLAG=8,RULE_FLAG=16;
+// Raised when the classes change, so a saved table made under the old rules can be marked for re-analysis. 2: N with one mismatch is unresolved.
+export const BINDING_METHOD=2;
 export const DEFAULT_RULE=Object.freeze({end3:5,maxMismatch:1});
 const TOP_VARIANTS=30,YIELD_EVERY=4096;
 
