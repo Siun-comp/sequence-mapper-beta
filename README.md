@@ -1,7 +1,7 @@
-# Sequence Mapper (test build)
+# Sequence Mapper (test build, retired)
 
-Standalone test build of a tool in development for JSU LabTools. Sequences are processed in the browser and are not uploaded.
+This test build is retired. Sequence Mapper is now published in JSU LabTools:
 
-Open: https://siun-comp.github.io/sequence-mapper-beta/
+https://jsu-labtools.pages.dev/tools/sequence-mapper/index.html
 
-License: GPL-2.0-or-later, see tools/sequence-mapper/NOTICE.md and LICENSE.txt. minimap2 and SIMDe are MIT.
+Both `index.html` and `tools/sequence-mapper/index.html` here only point to the new address. The earlier test build stays in this repository's history.
